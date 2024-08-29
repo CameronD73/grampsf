@@ -664,29 +664,44 @@ def probably_alive(
     :param max_age_prob_alive: maximum age of a person, in years
     :param avg_generation_gap: average generation gap, in years
     """
-    # First, get the real database to use all people
-    # for determining alive status:
+    # First, get the probable birth and death ranges for
+    # this person from the real database:
     birth, death, explain, relative = probably_alive_range(
         person, db, max_sib_age_diff, max_age_prob_alive, avg_generation_gap
     )
     if current_date is None:
         current_date = Today()
+    elif not current_date.is_valid() :
+        current_date = Today()
+
     LOG.debug(
-        "{}: b.{}, d.{} - {}".format(
-            " ".join(person.get_primary_name().get_text_data_list()),
+        "     [{}] {}: b.{}, d.{} vs {} - {}".format(
+            person.get_gramps_id(),
+            person.get_primary_name().get_gedcom_name(),
             birth,
             death,
+            current_date,
             explain,
         )
     )
     if not birth or not death:
         # no evidence, must consider alive
+        LOG.debug( "      decided alive - no evidence" )
         return (True, None, None, _("no evidence"), None) if return_range else True
     # must have dates from here:
     if limit:
         death += limit  # add these years to death
     # Finally, check to see if current_date is between dates
-    result = current_date.match(birth, ">=") and current_date.match(death, "<=")
+    # ---true if  current_date >= birth(min)   and  true if current_date < death
+    # these include true if current_date is within the estimated range 
+    result = current_date.match(birth, ">=") and current_date.match(death, "<")
+    (bthmin, bthmax) = birth.get_start_stop_range()
+    (dthmin, dthmax) = death.get_start_stop_range()
+    (dmin, dmax) = current_date.get_start_stop_range()
+    LOG.debug( "    alive={}, btest: {}, dtest: {} (born {}-{}, dd {}-{}) vs ({}-{})".format( 
+            result, current_date.match(birth, ">="), current_date.match(death, "<"),
+            bthmin, bthmax, dthmin, dthmax, dmin, dmax
+            ) )
     if return_range:
         return (result, birth, death, explain, relative)
     else:
@@ -697,7 +712,7 @@ def probably_alive_range(
     person, db, max_sib_age_diff=None, max_age_prob_alive=None, avg_generation_gap=None
 ):
     """
-    Computes estimated birth and death dates.
+    Computes estimated birth and death date ranges.
     Returns: (birth_date, death_date, explain_text, related_person)
     """
     # First, find the real database to use all people
