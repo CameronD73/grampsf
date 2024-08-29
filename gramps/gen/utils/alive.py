@@ -109,7 +109,8 @@ class ProbablyAlive:
         birth_date = None
         explain = ""
         # If the recorded death year is before current year then
-        # things are simple.
+        # things are simple.  Except, a death=yes with no date returns
+        # an EMPTY death_date
         if death_ref and death_ref.get_role().is_primary():
             if death_ref:
                 death = self.db.get_event_from_handle(death_ref.ref)
@@ -145,22 +146,35 @@ class ProbablyAlive:
                     birth_date = ev.get_date_object()
 
         if not birth_date and death_date:
-            # person died more than MAX after current year
+            # person died so guess a limit birth date
             if death_date.is_valid():
                 birth_date = death_date.copy_offset_ymd(year=-self.MAX_AGE_PROB_ALIVE)
             else:
-                birth_date = death_date
+                birth_date = death_date     # ?? why assign an invalid date?
             explain = _("death date")
 
-        if not death_date and birth_date:
-            # person died more than MAX after current year
-            death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
-            explain = _("birth date")
+        if birth_date is not None and birth_date.is_valid():
+            if not death_date:
+                # person died more than MAX after current year
+                death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
+                explain = _("birth date")
+            elif not death_date.is_valid():
+                # at this stage presume person is known dead but not when
+                max_death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
+                if max_death_date.match(Today(), ">="):
+                    max_death_date = Today()
+                    max_death_date.set_yr_mon_day_offset( day=-1 )  # make it yesterday
+                death_date = Date( birth_date )
+                death_date.set_modifier(Date.MOD_RANGE)
+                death_date.set_text_value("")
+                death_date.set2_yr_mon_day(max_death_date.get_year(), max_death_date.get_month(), max_death_date.get_day())
+                death_date.recalc_sort_value()
+                explain = _("birth date and known to be dead")
 
-        if death_date and birth_date:
+        if death_date and birth_date and death_date.is_valid() and birth_date.is_valid():
             return (birth_date, death_date, explain, person)  # direct self evidence
 
-        # Neither birth nor death events are available. Try looking
+        # Neither birth nor death dates are available. Try looking
         # at siblings. If a sibling was born more than X years past,
         # or more than Z future, then probably this person is
         # not alive. If the sibling died more than X years
@@ -671,11 +685,12 @@ def probably_alive(
     )
     if current_date is None:
         current_date = Today()
-    elif not current_date.is_valid() :
+    elif not current_date.get_year_valid():
+        # the is_valid() test does not work, because the sortval can be non-zero even if date is EMPTY
         current_date = Today()
 
     LOG.debug(
-        "     [{}] {}: b.{}, d.{} vs {} - {}".format(
+        " [{}] {}: b.{}, d.{} vs {} - {}".format(
             person.get_gramps_id(),
             person.get_primary_name().get_gedcom_name(),
             birth,
