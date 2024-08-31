@@ -569,6 +569,12 @@ class Date(BaseObject):
     The core date handling class for Gramps.
 
     Supports partial dates, compound dates and alternate calendars.
+    Create a new Date instance using one of the following:
+    Date()              - an empty (invalid) date
+    Date( other_date )  - duplicate another Date
+    Date( year )        - create an exact date - 1st Jan of the specified year
+    Date( year, month ) - create an exact date - 1st of the given month, year
+    Date( year, month, day ) - create an exact date
     """
 
     MOD_NONE = 0  # CODE
