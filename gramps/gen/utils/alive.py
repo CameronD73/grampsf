@@ -678,6 +678,10 @@ def probably_alive(
     :param max_age_prob_alive: maximum age of a person, in years
     :param avg_generation_gap: average generation gap, in years
     """
+    LOG.debug(" === [{}] {}: ".format(
+        person.get_gramps_id(),
+        person.get_primary_name().get_gedcom_name(),
+    ))
     # First, get the probable birth and death ranges for
     # this person from the real database:
     birth, death, explain, relative = probably_alive_range(
@@ -685,14 +689,11 @@ def probably_alive(
     )
     if current_date is None:
         current_date = Today()
-    elif not current_date.get_year_valid():
-        # the is_valid() test does not work, because the sortval can be non-zero even if date is EMPTY
-        current_date = Today()
+    elif not current_date.is_valid():
+        current_date = Today()s
 
-    LOG.debug(
-        " [{}] {}: b.{}, d.{} vs {} - {}".format(
-            person.get_gramps_id(),
-            person.get_primary_name().get_gedcom_name(),
+    if not explain.startswith("DIRECT"):
+        LOG.debug("      b.{}, d.{} vs {} - {}".format(
             birth,
             death,
             current_date,
@@ -701,7 +702,10 @@ def probably_alive(
     )
     if not birth or not death:
         # no evidence, must consider alive
-        LOG.debug( "      decided alive - no evidence" )
+        LOG.debug("      [{}] {}: decided alive - no evidence".format(
+            person.get_gramps_id(),
+            person.get_primary_name().get_gedcom_name() )
+        )
         return (True, None, None, _("no evidence"), None) if return_range else True
     # must have dates from here:
     if limit:
@@ -710,10 +714,11 @@ def probably_alive(
     # ---true if  current_date >= birth(min)   and  true if current_date < death
     # these include true if current_date is within the estimated range 
     result = current_date.match(birth, ">=") and current_date.match(death, "<")
-    (bthmin, bthmax) = birth.get_start_stop_range()
-    (dthmin, dthmax) = death.get_start_stop_range()
-    (dmin, dmax) = current_date.get_start_stop_range()
-    LOG.debug( "    alive={}, btest: {}, dtest: {} (born {}-{}, dd {}-{}) vs ({}-{})".format( 
+    if not explain.startswith("DIRECT"):
+        (bthmin, bthmax) = birth.get_start_stop_range()
+        (dthmin, dthmax) = death.get_start_stop_range()
+        (dmin, dmax) = current_date.get_start_stop_range()
+        LOG.debug("        alive={}, btest: {}, dtest: {} (born {}-{}, dd {}-{}) vs ({}-{})".format(
             result, current_date.match(birth, ">="), current_date.match(death, "<"),
             bthmin, bthmax, dthmin, dthmax, dmin, dmax
             ) )
