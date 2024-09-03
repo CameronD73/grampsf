@@ -293,7 +293,7 @@ class ProbablyAlive:
                                 ),
                                 Date().copy_ymd(
                                     date1.get_year()
-                                    - self.AVG_GENERATION_GAP
+                                    + self.AVG_GENERATION_GAP
                                     + self.MAX_AGE_PROB_ALIVE
                                 ),
                                 _("a spouse's birth-related date, ") + explain,
@@ -303,7 +303,7 @@ class ProbablyAlive:
                             return (
                                 Date().copy_ymd(
                                     date2.get_year()
-                                    + self.AVG_GENERATION_GAP
+                                    - self.AVG_GENERATION_GAP
                                     - self.MAX_AGE_PROB_ALIVE
                                 ),
                                 Date().copy_ymd(
@@ -324,7 +324,7 @@ class ProbablyAlive:
                                 ),
                                 Date().copy_ymd(
                                     date1.get_year()
-                                    - self.AVG_GENERATION_GAP
+                                    + self.AVG_GENERATION_GAP
                                     + self.MAX_AGE_PROB_ALIVE
                                 ),
                                 _("a spouse's birth-related date, ") + explain,
@@ -334,7 +334,7 @@ class ProbablyAlive:
                             return (
                                 Date().copy_ymd(
                                     date2.get_year()
-                                    + self.AVG_GENERATION_GAP
+                                    - self.AVG_GENERATION_GAP
                                     - self.MAX_AGE_PROB_ALIVE
                                 ),
                                 Date().copy_ymd(
