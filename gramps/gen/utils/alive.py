@@ -275,103 +275,6 @@ class ProbablyAlive:
                                     child,
                                 )
 
-        if not is_spouse:  # if you are not in recursion, let's recurse:
-            for family_handle in person.get_family_handle_list():
-                family = self.db.get_family_from_handle(family_handle)
-                if family:
-                    mother_handle = family.get_mother_handle()
-                    father_handle = family.get_father_handle()
-                    if mother_handle == person.handle and father_handle:
-                        father = self.db.get_person_from_handle(father_handle)
-                        date1, date2, explain, other = self.probably_alive_range(
-                            father, is_spouse=True
-                        )
-                        if date1 and date1.get_year() != 0:
-                            return (
-                                Date().copy_ymd(
-                                    date1.get_year() - self.AVG_GENERATION_GAP
-                                ),
-                                Date().copy_ymd(
-                                    date1.get_year()
-                                    + self.AVG_GENERATION_GAP
-                                    + self.MAX_AGE_PROB_ALIVE
-                                ),
-                                _("a spouse's birth-related date, ") + explain,
-                                other,
-                            )
-                        elif date2 and date2.get_year() != 0:
-                            return (
-                                Date().copy_ymd(
-                                    date2.get_year()
-                                    - self.AVG_GENERATION_GAP
-                                    - self.MAX_AGE_PROB_ALIVE
-                                ),
-                                Date().copy_ymd(
-                                    date2.get_year() + self.AVG_GENERATION_GAP
-                                ),
-                                _("a spouse's death-related date, ") + explain,
-                                other,
-                            )
-                    elif father_handle == person.handle and mother_handle:
-                        mother = self.db.get_person_from_handle(mother_handle)
-                        date1, date2, explain, other = self.probably_alive_range(
-                            mother, is_spouse=True
-                        )
-                        if date1 and date1.get_year() != 0:
-                            return (
-                                Date().copy_ymd(
-                                    date1.get_year() - self.AVG_GENERATION_GAP
-                                ),
-                                Date().copy_ymd(
-                                    date1.get_year()
-                                    + self.AVG_GENERATION_GAP
-                                    + self.MAX_AGE_PROB_ALIVE
-                                ),
-                                _("a spouse's birth-related date, ") + explain,
-                                other,
-                            )
-                        elif date2 and date2.get_year() != 0:
-                            return (
-                                Date().copy_ymd(
-                                    date2.get_year()
-                                    - self.AVG_GENERATION_GAP
-                                    - self.MAX_AGE_PROB_ALIVE
-                                ),
-                                Date().copy_ymd(
-                                    date2.get_year() + self.AVG_GENERATION_GAP
-                                ),
-                                _("a spouse's death-related date, ") + explain,
-                                other,
-                            )
-                    # Let's check the family events and see if we find something
-                    for ref in family.get_event_ref_list():
-                        if ref:
-                            event = self.db.get_event_from_handle(ref.ref)
-                            if event:
-                                date = event.get_date_object()
-                                year = date.get_year()
-                                if year != 0:
-                                    other = None
-                                    if person.handle == mother_handle and father_handle:
-                                        other = self.db.get_person_from_handle(
-                                            father_handle
-                                        )
-                                    elif (
-                                        person.handle == father_handle and mother_handle
-                                    ):
-                                        other = self.db.get_person_from_handle(
-                                            mother_handle
-                                        )
-                                    return (
-                                        Date().copy_ymd(year - self.AVG_GENERATION_GAP),
-                                        Date().copy_ymd(
-                                            year
-                                            - self.AVG_GENERATION_GAP
-                                            + self.MAX_AGE_PROB_ALIVE
-                                        ),
-                                        _("event with spouse"),
-                                        other,
-                                    )
 
         # Try looking for descendants that were born more than a lifespan
         # ago.
@@ -642,6 +545,115 @@ class ProbablyAlive:
             )
         if date1 and date2:
             return (date1, date2, explain, other)
+        
+        # final test is against spouse details, which involves a recursive call
+        # to probably_alive_range().
+        # This test gives higher uncertainty than others ...
+        # We allow for an age difference +/- AVG_GENERATION_GAP
+        # which, assuming defaults, results in 150 year "probably alive" range.
+        # In reality, 
+
+        if not is_spouse:  # if you are not in recursion, let's recurse:
+            LOG.debug("    ----- trying spouse check: birth {}, death {}".format(
+                "valid" if birth_date.is_valid() else "indeterminate",
+                "valid" if death_date.is_valid() else "indeterminate",
+            ))
+            for family_handle in person.get_family_handle_list():
+                family = self.db.get_family_from_handle(family_handle)
+                if family:
+                    mother_handle = family.get_mother_handle()
+                    father_handle = family.get_father_handle()
+                    if mother_handle == person.handle and father_handle:
+                        father = self.db.get_person_from_handle(father_handle)
+                        date1, date2, explain, other = self.probably_alive_range(
+                            father, is_spouse=True
+                        )
+                        if date1 and date1.get_year() != 0:
+                            return (
+                                Date().copy_ymd(
+                                    date1.get_year() - self.AVG_GENERATION_GAP
+                                ),
+                                Date().copy_ymd(
+                                    date1.get_year()
+                                    + self.AVG_GENERATION_GAP
+                                    + self.MAX_AGE_PROB_ALIVE
+                                ),
+                                _("a spouse's birth-related date, ") + explain,
+                                other,
+                            )
+                        elif date2 and date2.get_year() != 0:
+                            return (
+                                Date().copy_ymd(
+                                    date2.get_year()
+                                    - self.AVG_GENERATION_GAP
+                                    - self.MAX_AGE_PROB_ALIVE
+                                ),
+                                Date().copy_ymd(
+                                    date2.get_year() + self.AVG_GENERATION_GAP
+                                ),
+                                _("a spouse's death-related date, ") + explain,
+                                other,
+                            )
+                    elif father_handle == person.handle and mother_handle:
+                        mother = self.db.get_person_from_handle(mother_handle)
+                        date1, date2, explain, other = self.probably_alive_range(
+                            mother, is_spouse=True
+                        )
+                        if date1 and date1.get_year() != 0:
+                            return (
+                                Date().copy_ymd(
+                                    date1.get_year() - self.AVG_GENERATION_GAP
+                                ),
+                                Date().copy_ymd(
+                                    date1.get_year()
+                                    + self.AVG_GENERATION_GAP
+                                    + self.MAX_AGE_PROB_ALIVE
+                                ),
+                                _("a spouse's birth-related date, ") + explain,
+                                other,
+                            )
+                        elif date2 and date2.get_year() != 0:
+                            return (
+                                Date().copy_ymd(
+                                    date2.get_year()
+                                    - self.AVG_GENERATION_GAP
+                                    - self.MAX_AGE_PROB_ALIVE
+                                ),
+                                Date().copy_ymd(
+                                    date2.get_year() + self.AVG_GENERATION_GAP
+                                ),
+                                _("a spouse's death-related date, ") + explain,
+                                other,
+                            )
+                    # Let's check the family events and see if we find something
+                    for ref in family.get_event_ref_list():
+                        if ref:
+                            event = self.db.get_event_from_handle(ref.ref)
+                            if event:
+                                date = event.get_date_object()
+                                year = date.get_year()
+                                if year != 0:
+                                    other = None
+                                    if person.handle == mother_handle and father_handle:
+                                        other = self.db.get_person_from_handle(
+                                            father_handle
+                                        )
+                                    elif (
+                                        person.handle == father_handle and mother_handle
+                                    ):
+                                        other = self.db.get_person_from_handle(
+                                            mother_handle
+                                        )
+                                    return (
+                                        Date().copy_ymd(year - self.AVG_GENERATION_GAP),
+                                        Date().copy_ymd(
+                                            year
+                                            - self.AVG_GENERATION_GAP
+                                            + self.MAX_AGE_PROB_ALIVE
+                                        ),
+                                        _("event with spouse"),
+                                        other,
+                                    )
 
         # If we can't find any reason to believe that they are dead we
         # must assume they are alive.
