@@ -4,6 +4,7 @@
 # Copyright (C) 2000-2007  Donald N. Allingham
 # Copyright (C) 2009       Gary Burton
 # Copyright (C) 2011       Tim G L Lyons
+# Copyright (C) 2024       Cameron Davidson
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,6 +42,7 @@ LOG = logging.getLogger(".gen.utils.alive")
 # -------------------------------------------------------------------------
 from ..display.name import displayer as name_displayer
 from ..lib.date import Date, Today
+from ..lib.person import Person
 from ..errors import DatabaseError
 from ..const import GRAMPS_LOCALE as glocale
 
@@ -58,12 +60,13 @@ try:
     _MAX_AGE_PROB_ALIVE = config.get("behavior.max-age-prob-alive")
     _MAX_SIB_AGE_DIFF = config.get("behavior.max-sib-age-diff")
     _AVG_GENERATION_GAP = config.get("behavior.avg-generation-gap")
+    _MIN_GENERATION_YEARS = config.get("behavior.min-generation-years")
 except ImportError:
     # Utils used as module not part of GRAMPS
     _MAX_AGE_PROB_ALIVE = 110
     _MAX_SIB_AGE_DIFF = 20
     _AVG_GENERATION_GAP = 20
-
+    _MIN_GENERATION_YEARS = 13
 
 # -------------------------------------------------------------------------
 #
@@ -81,6 +84,7 @@ class ProbablyAlive:
         max_sib_age_diff=None,
         max_age_prob_alive=None,
         avg_generation_gap=None,
+        min_generation_years=None
     ):
         self.db = db
         if max_sib_age_diff is None:
@@ -89,191 +93,297 @@ class ProbablyAlive:
             max_age_prob_alive = _MAX_AGE_PROB_ALIVE
         if avg_generation_gap is None:
             avg_generation_gap = _AVG_GENERATION_GAP
+        if min_generation_years is None:
+            min_generation_years = _MIN_GENERATION_YEARS
         self.MAX_SIB_AGE_DIFF = max_sib_age_diff
         self.MAX_AGE_PROB_ALIVE = max_age_prob_alive
         self.AVG_GENERATION_GAP = avg_generation_gap
+        self.MIN_GENERATION_YEARS = min_generation_years
         self.pset = set()
 
     def probably_alive_range(self, person, is_spouse=False):
-        # FIXME: some of these computed dates need to be a span. For
-        #        example, if a person could be born +/- 20 yrs around
-        #        a date then it should be a span, and yr_offset should
-        #        deal with it as well ("between 1920 and 1930" + 10 =
-        #        "between 1930 and 1940")
+        # where appropriate, some derived dates are expressed as a range.
         if person is None:
             return (None, None, "", None)
         self.pset = set()
-        birth_ref = person.get_birth_ref()
-        death_ref = person.get_death_ref()
-        death_date = None
         birth_date = None
-        explain = ""
-        # If the recorded death year is before current year then
-        # things are simple.  Except, a death=yes with no date returns
-        # an EMPTY death_date
-        if death_ref and death_ref.get_role().is_primary():
-            if death_ref:
-                death = self.db.get_event_from_handle(death_ref.ref)
-                if death:
-                    death_date = death.get_date_object()
+        death_date = None
+        known_to_be_dead = False
+        min_birth_year = None
+        max_birth_year = None
+        min_birth_year_from_death = None    # values derived from 110 year extrapolations
+        max_birth_year_from_death = None
+        # these min/max parameters are simply years
+        sib_birth_min, sib_birth_max = (None, None)
+        explain_birth_min = ""
+        explain_birth_max = ""
+        explain_death = ""
 
-        # Look for Cause Of Death, Burial or Cremation events.
-        # These are fairly good indications that someone's not alive.
-        if not death_date:
-            for ev_ref in person.get_primary_event_ref_list():
-                if ev_ref:
-                    ev = self.db.get_event_from_handle(ev_ref.ref)
-                    if ev and ev.type.is_death_fallback():
-                        death_date = ev.get_date_object()
-                        if not death_date.is_valid():
-                            death_date = Today()  # before today
-                            death_date.set_modifier(Date.MOD_BEFORE)
+        def get_person_bdm(class_or_handle):
+            """
+                Looks up birth and death events for referenced person,
+                using fallback dates if necessary.
+                The dates will always be either None or valid values, avoiding EMPTYs
 
-        # If they were born within X years before current year then
-        # assume they are alive (we already know they are not dead).
-        if not birth_date:
-            if birth_ref and birth_ref.get_role().is_primary():
-                birth = self.db.get_event_from_handle(birth_ref.ref)
-                if birth and birth.get_date_object().get_start_date() != Date.EMPTY:
-                    birth_date = birth.get_date_object()
+            returns  (birth_date, death_date, death_found, explain_birth, explain_death)
+                                 for the referenced person
+            """
+            birth_date = None
+            death_date = None
+            death_found = False
+            explain_birth = ""
+            explain_death = ""
 
-        # Look for Baptism, etc events.
-        # These are fairly good indications that someone's birth.
-        if not birth_date:
-            for ev_ref in person.get_primary_event_ref_list():
-                ev = self.db.get_event_from_handle(ev_ref.ref)
-                if ev and ev.type.is_birth_fallback():
-                    birth_date = ev.get_date_object()
+            if not class_or_handle:
+                return (birth_date, death_date, death_found, explain_birth, explain_death)
 
-        if not birth_date and death_date:
-            # person died so guess a limit birth date
-            if death_date.is_valid():
-                birth_date = death_date.copy_offset_ymd(year=-self.MAX_AGE_PROB_ALIVE)
+            if isinstance(class_or_handle, Person):
+                thisperson = class_or_handle
+            elif isinstance(class_or_handle, str):
+                thisperson = self.db.get_person_from_handle(class_or_handle)
             else:
-                birth_date = death_date     # ?? why assign an invalid date?
-            explain = _("death date")
+                thisperson = None
 
-        if birth_date is not None and birth_date.is_valid():
+            if not thisperson:
+                LOG.debug("    get_person_bdm: null person called")
+                return (birth_date, death_date, death_found, explain_birth, explain_death)
+            # is there an actual death record?  Even if yes, there may be no date,
+            # in which case the EMPTY date is reported for the event.
+            death_ref = thisperson.get_death_ref()
+            if death_ref and death_ref.get_role().is_primary():
+                ev = self.db.get_event_from_handle(death_ref.ref)
+                if ev:
+                    death_found = True
+                    dateobj = ev.get_date_object()
+                    if dateobj and dateobj.is_valid():
+                        death_date = dateobj
+                        explain_death = _("date")
+
+            # at this stage death_date is None or a valid date.
+            # death_found is true if person is known to be dead,
+            #        whether or not a date was found.
+            # If we have no death_date then look for fallback even such as Burial.
+            # These fallbacks are fairly good indications that someone's not alive.
+            # If that date itself is not valid, it means we know they are dead but not when,
+            # so keep checking in case we get a date.
             if not death_date:
-                # person died more than MAX after current year
-                death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
-                explain = _("birth date")
-            elif not death_date.is_valid():
-                # at this stage presume person is known dead but not when
-                max_death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
-                if max_death_date.match(Today(), ">="):
-                    max_death_date = Today()
-                    max_death_date.set_yr_mon_day_offset( day=-1 )  # make it yesterday
-                death_date = Date( birth_date )
-                death_date.set_modifier(Date.MOD_RANGE)
-                death_date.set_text_value("")
-                death_date.set2_yr_mon_day(max_death_date.get_year(), max_death_date.get_month(), max_death_date.get_day())
-                death_date.recalc_sort_value()
-                explain = _("birth date and known to be dead")
+                for ev_ref in person.get_primary_event_ref_list():
+                    if ev_ref:
+                        ev = self.db.get_event_from_handle(ev_ref.ref)
+                        if ev and ev.type.is_death_fallback():
+                            death_date_fb = ev.get_date_object()
+                            death_found = True
+                            if death_date_fb.is_valid():
+                                death_date = death_date_fb
+                                explain_death = _("date fallback")
+                                if death_date.get_modifier() == Date.MOD_NONE:
+                                    death_date.set_modifier(Date.MOD_BEFORE)
+                                break   # we found a valid date, stop looking.
+            # At this point:
+            # * death_found is False: (no death indication found); or
+            # * death_found is True. (death confirmed somehow);  In which case:
+            #       * (death_date is valid) some form of death date found; or
+            #       * (death_date is None and no date was recorded)
+            # now repeat, looking for birth date
+            birth_ref = thisperson.get_birth_ref()
+            if birth_ref and birth_ref.get_role().is_primary():
+                ev = self.db.get_event_from_handle(birth_ref.ref)
+                if ev:
+                    dateobj = ev.get_date_object()
+                    if dateobj and dateobj.is_valid():
+                        birth_date = dateobj
+                        explain_birth = _("date")
 
-        if death_date and birth_date and death_date.is_valid() and birth_date.is_valid():
-            return (birth_date, death_date, explain, person)  # direct self evidence
-
-        # Neither birth nor death dates are available. Try looking
-        # at siblings. If a sibling was born more than X years past,
-        # or more than Z future, then probably this person is
-        # not alive. If the sibling died more than X years
-        # past, or more than X years future, then probably not alive.
-
-        family_list = person.get_parent_family_handle_list()
-        for family_handle in family_list:
-            family = self.db.get_family_from_handle(family_handle)
-            if family is None:
-                continue
-            for child_ref in family.get_child_ref_list():
-                child_handle = child_ref.ref
-                child = self.db.get_person_from_handle(child_handle)
-                if child is None:
-                    continue
-                # Go through once looking for direct evidence:
-                for ev_ref in child.get_primary_event_ref_list():
-                    ev = self.db.get_event_from_handle(ev_ref.ref)
-                    if ev and ev.type.is_birth():
-                        dobj = ev.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            # if sibling birth date too far away, then not alive:
-                            year = dobj.get_year()
-                            if year != 0:
-                                # sibling birth date
-                                return (
-                                    Date().copy_ymd(year - self.MAX_SIB_AGE_DIFF),
-                                    Date().copy_ymd(
-                                        year
-                                        - self.MAX_SIB_AGE_DIFF
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("sibling birth date"),
-                                    child,
-                                )
-                    elif ev and ev.type.is_death():
-                        dobj = ev.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            # if sibling death date too far away, then not alive:
-                            year = dobj.get_year()
-                            if year != 0:
-                                # sibling death date
-                                return (
-                                    Date().copy_ymd(
-                                        year
-                                        - self.MAX_SIB_AGE_DIFF
-                                        - self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    Date().copy_ymd(
-                                        year
-                                        - self.MAX_SIB_AGE_DIFF
-                                        - self.MAX_AGE_PROB_ALIVE
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("sibling death date"),
-                                    child,
-                                )
-                # Go through again looking for fallback:
-                for ev_ref in child.get_primary_event_ref_list():
+            # to here:
+            #   birth_date is None: either no birth record or else no date reported; or
+            #   birth_date is a valid date
+            # Look for Baptism, etc events.
+            # These are fairly good indications of someone's birth date.
+            if not birth_date:
+                for ev_ref in person.get_primary_event_ref_list():
                     ev = self.db.get_event_from_handle(ev_ref.ref)
                     if ev and ev.type.is_birth_fallback():
-                        dobj = ev.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            # if sibling birth date too far away, then not alive:
-                            year = dobj.get_year()
-                            if year != 0:
-                                # sibling birth date
-                                return (
-                                    Date().copy_ymd(year - self.MAX_SIB_AGE_DIFF),
-                                    Date().copy_ymd(
-                                        year
-                                        - self.MAX_SIB_AGE_DIFF
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("sibling birth-related date"),
-                                    child,
-                                )
-                    elif ev and ev.type.is_death_fallback():
-                        dobj = ev.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            # if sibling death date too far away, then not alive:
-                            year = dobj.get_year()
-                            if year != 0:
-                                # sibling death date
-                                return (
-                                    Date().copy_ymd(
-                                        year
-                                        - self.MAX_SIB_AGE_DIFF
-                                        - self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    Date().copy_ymd(
-                                        year
-                                        - self.MAX_SIB_AGE_DIFF
-                                        - self.MAX_AGE_PROB_ALIVE
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("sibling death-related date"),
-                                    child,
-                                )
+                        birth_date_fb = ev.get_date_object()
+                        if birth_date_fb and birth_date_fb.is_valid():
+                            birth_date = birth_date_fb
+                            explain_birth = _("date fallback")
+                            break
+
+            return (birth_date, death_date, death_found, explain_birth, explain_death)
+
+        birth_date, death_date, known_to_be_dead, explain_birth_min, explain_death = get_person_bdm(person)
+
+        explanation = _("DIRECT birth: ") + explain_birth_min + _(", death: ") + explain_death
+        if death_date is not None and birth_date is not None:
+            return (birth_date, death_date, explanation, person)  # direct self evidence
+
+        # birth and/or death dates are not known, so let's see what we can estimate.
+        # First: minimum is X years before death;
+        # Second: get the parent's birth/death dates if available, so we can constrain
+        # to sensible values - mother's age and parent's death.
+        # Finally: get birth dates for any full siblings to further constrain.
+        # Currently only look at full siblings - ranges could get wider for half siblings.
+
+        if birth_date is None:
+            # only need to estimate birth_date if we have no more direct evidence.
+            if death_date is not None:
+                # person died so guess initial limits to birth date
+                if death_date.get_year_valid():
+                    max_birth_year_from_death = death_date.get_year()
+                    min_birth_year_from_death = max_birth_year - self.MAX_AGE_PROB_ALIVE
+
+            m_birth, m_death = (None, None)         # mother's birth and death dates
+            f_birth, f_death = (None, None)         # father's
+            # the following 6 vars are not used, they are just placeholders for returned values from get_person_bdm()
+            m_known_dead = f_known_dead = False
+            m_explain_birth = m_explain_death = ""
+            f_explain_birth = f_explain_death = ""
+            parents = None          # Family with parents
+            parenth = person.get_main_parents_family_handle()
+            if parenth:
+                parents = self.db.get_family_from_handle(parenth)
+                mum = parents.get_mother_handle()
+                m_birth, m_death, m_known_dead, m_explain_birth, m_explain_death = get_person_bdm(mum)
+                dad = parents.get_father_handle()
+                f_birth, f_death, f_known_dead, f_explain_birth, f_explain_death = get_person_bdm(dad)
+            # now scan siblings
+            family_list = person.get_parent_family_handle_list()
+            for family_handle in family_list:
+                family = self.db.get_family_from_handle(family_handle)
+                if family is None:
+                    continue
+                if parents is not None and family != parents:
+                    LOG.debug( "      skipping family {}.".format(family.get_gramps_id()))
+                    continue
+                for child_ref in family.get_child_ref_list():
+                    child_handle = child_ref.ref
+                    child = self.db.get_person_from_handle(child_handle)
+                    if child is None or child == person:
+                        continue
+                    need_birth_fallback = True
+                    # Go through once looking for direct evidence:
+                    # extract the range of birth dates, either direct or fallback
+                    for ev_ref in child.get_primary_event_ref_list():
+                        ev = self.db.get_event_from_handle(ev_ref.ref)
+                        if ev and ev.type.is_birth():
+                            dobj = ev.get_date_object()
+                            if dobj and dobj.get_year_valid():
+                                year = dobj.get_year()
+                                need_birth_fallback = False
+                                if sib_birth_min is None or year < sib_birth_min:
+                                    sib_birth_min = year
+                                if sib_birth_max is None or year > sib_birth_max:
+                                    sib_birth_max = year
+                    # scan even list again looking for fallback:
+                    if need_birth_fallback:
+                        for ev_ref in child.get_primary_event_ref_list():
+                            ev = self.db.get_event_from_handle(ev_ref.ref)
+                            if ev and ev.type.is_birth_fallback():
+                                dobj = ev.get_date_object()
+                                if dobj and dobj.get_year_valid():
+                                    # if sibling birth date too far away, then not alive:
+                                    year = dobj.get_year()
+                                    if sib_birth_min is None or year < sib_birth_min:
+                                        sib_birth_min = year
+                                    if sib_birth_max is None or year > sib_birth_max:
+                                        sib_birth_max = year
+            # Now evaluate estimate based on parents and siblings:
+            # Make sure child is born after both parents are old enough
+            if m_birth:
+                min_birth_year = m_birth.get_year() + self.MIN_GENERATION_YEARS
+                explain_birth_min = _("mother's age")
+            if f_birth:
+                min_from_f = f_birth.get_year() + self.MIN_GENERATION_YEARS
+                if min_birth_year is None or min_from_f > min_birth_year:
+                    min_birth_year = min_from_f
+                    explain_birth_min = _("father's age")
+            if min_birth_year_from_death:
+                if min_birth_year_from_death > min_birth_year:
+                    min_birth_year = min_birth_year_from_death
+                    explain_birth_min = _("from death date")
+            # Calculate the latest year that the child could have been born
+            if m_death:
+                max_birth_year = m_death.get_year()
+                explain_birth_max = _("mother's death")
+            if f_death:
+                max_from_f = f_death.get_year()+1
+                if max_birth_year is None or max_from_f < max_birth_year:
+                    max_birth_year = max_from_f
+                    explain_birth_max = _("father's death")
+            if max_birth_year_from_death and max_birth_year_from_death < max_birth_year:
+                max_birth_year = max_birth_year_from_death
+                explain_birth_max = _("person's death")
+
+
+        # sib_xx_min/max are either both None or both have a value (maybe the same)
+        if sib_birth_max:
+            min_from_sib = sib_birth_max - self.MAX_SIB_AGE_DIFF
+            if min_birth_year is None or min_from_sib > min_birth_year:
+                min_birth_year = min_from_sib
+                explain_birth_min = _("oldest sibling's age")
+
+            max_from_sib = sib_birth_min + self.MAX_SIB_AGE_DIFF
+            if max_birth_year is None or max_from_sib < max_birth_year:
+                max_birth_year = max_from_sib
+                explain_birth_max = _("youngest sibling's age")
+
+        if birth_date is None or not birth_date.is_valid():
+            birth_date = Date()     # make sure we have an empty date
+            #  use proxy estimate
+            if min_birth_year and max_birth_year:
+                # create a range set
+                birth_range = list(Date.EMPTY + Date.EMPTY )
+                birth_range[Date._POS_YR] = min_birth_year
+                birth_range[Date._POS_RYR] = max_birth_year
+                birth_date.set(modifier = Date.MOD_RANGE, value=tuple(birth_range))
+            else:
+                if min_birth_year:
+                    birth_date.set_yr_mon_day(min_birth_year,1,1)
+                    birth_date.set_modifier(Date.MOD_AFTER )
+                elif max_birth_year:
+                    birth_date.set_yr_mon_day(max_birth_year, 12, 31)
+                    birth_date.set_modifier(Date.MOD_BEFORE )
+            birth_date.recalc_sort_value()
+
+        # If we have no death date but we know death has happened then
+        # we set death range somewhere between birth and yesterday.
+        # otherwise we assume MAX years after birth
+        if death_date is None:
+            if birth_date and birth_date.is_valid():
+                death_date = Date(birth_date)
+                max_death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
+                if known_to_be_dead:
+                    if max_death_date.match(Today(), ">="):
+                        max_death_date = Today()
+                        max_death_date.set_yr_mon_day_offset(day=-1) # make it yesterday
+                    # range start value stays at birth date
+                    death_date.set_modifier(Date.MOD_RANGE)
+                    death_date.set_text_value("")
+                    death_date.set2_yr_mon_day(
+                        max_death_date.get_year(),
+                        max_death_date.get_month(),
+                        max_death_date.get_day()
+                    )
+                    explain_death = _("birth date and known to be dead")
+                else:
+                    death_date.set_yr_mon_day_offset(year=self.MAX_AGE_PROB_ALIVE)
+                    if death_date.is_compound():
+                        death_date.set2_yr_mon_day_offset(year=self.MAX_AGE_PROB_ALIVE)
+                    explain_death = _("birth date")
+                death_date.recalc_sort_value()
+            else:
+                death_date = Date()
+
+        # at this stage we should have valid dates for both birth and death,
+        #  or else both are zero (if None then it's a bug).
+        if explain_birth_max == "":
+            explanation = _("birth: ") + explain_birth_min
+        else:
+            explanation = _("birth: ") + explain_birth_min + _(" and ") + explain_birth_max
+        explanation += _(", death: ") + explain_death
+        explanation = "2ND + " + explanation
+        if birth_date.is_valid() and death_date.is_valid():
+            return (birth_date, death_date, explanation, person)
 
 
         # Try looking for descendants that were born more than a lifespan
@@ -545,13 +655,13 @@ class ProbablyAlive:
             )
         if date1 and date2:
             return (date1, date2, explain, other)
-        
+
         # final test is against spouse details, which involves a recursive call
         # to probably_alive_range().
         # This test gives higher uncertainty than others ...
         # We allow for an age difference +/- AVG_GENERATION_GAP
         # which, assuming defaults, results in 150 year "probably alive" range.
-        # In reality, 
+        # In reality,
 
         if not is_spouse:  # if you are not in recursion, let's recurse:
             LOG.debug("    ----- trying spouse check: birth {}, death {}".format(
@@ -724,7 +834,7 @@ def probably_alive(
         death += limit  # add these years to death
     # Finally, check to see if current_date is between dates
     # ---true if  current_date >= birth(min)   and  true if current_date < death
-    # these include true if current_date is within the estimated range 
+    # these include true if current_date is within the estimated range
     result = current_date.match(birth, ">=") and current_date.match(death, "<")
     if not explain.startswith("DIRECT"):
         (bthmin, bthmax) = birth.get_start_stop_range()
@@ -765,7 +875,9 @@ def update_constants():
     """
     from ..config import config
 
-    global _MAX_AGE_PROB_ALIVE, _MAX_SIB_AGE_DIFF, _AVG_GENERATION_GAP
+    global _MAX_AGE_PROB_ALIVE, _MAX_SIB_AGE_DIFF
+    global _AVG_GENERATION_GAP, _MIN_GENERATION_YEARS
     _MAX_AGE_PROB_ALIVE = config.get("behavior.max-age-prob-alive")
     _MAX_SIB_AGE_DIFF = config.get("behavior.max-sib-age-diff")
     _AVG_GENERATION_GAP = config.get("behavior.avg-generation-gap")
+    _MIN_GENERATION_YEARS = config.get("behavior.min-generation-years")
