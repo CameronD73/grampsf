@@ -413,11 +413,86 @@ class ProbablyAlive:
         if birth_date.is_valid() and death_date.is_valid():
             return (birth_date, death_date, explanation, person)
 
-
         # Try looking for descendants that were born more than a lifespan
         # ago.
 
         def descendants_too_old(person, years):
+            """
+            Recursively scan descendants' tree to determine likely birth/death
+            dates for the person specified.
+            years: gets incremented by average generation gap as we descend the tree.
+            """
+            # FIXME:  this code does not follow an optimum path.
+            # currently: for each child of the ref. person:
+            #   if it has an actual birth date - return estimated parent dates
+            #   if it has an actual death date - return estimated parent dates
+            #     recurse to that child's children
+            #   if recursion returns empty, then
+            #   check fallback death dates for child.
+            # Problems - this is close to a depth-first search, while it should
+            # instead check all children, then all grandchildren, etc.
+            # The cost of fixing probably exceeds the value gained.
+
+            # First, a couple of routines to reduce duplication
+            def get_bd_from_child_birth_event(evnt, explain):
+                """
+                Estimate birth/death dates of a person from a child/grandchild's birth
+                (or birth fallback) date
+                Returns: (birth_date, death_date, explain, child)
+                        if valid dates were found,
+                        otherwise: None
+                """
+                nonlocal child, years
+                dobj = evnt.get_date_object()
+                retval = None
+                if dobj.get_start_date() != Date.EMPTY:
+                    dretbirth = Date(dobj)
+                    dretbirth.set_yr_mon_day_offset(year=(-years))
+                    dretdeath = dretbirth.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE)
+                    if dretbirth.is_compound():
+                        # if is not very meaningful to adjust the upper limit of a
+                        # compound date, however it is far worse to leave any unchanged.
+                        # A better alternative might be to remove the 2nd date.
+                        dretbirth.set2_yr_mon_day_offset(year=(-years))
+                        dretdeath.set2_yr_mon_day_offset(
+                            year=(-(self.MAX_AGE_PROB_ALIVE + years))
+                        )
+                    retval = (dretbirth, dretdeath, explain, child)
+                return retval
+
+            def get_bd_from_child_death_event(evnt, explain):
+                """
+                Estimate birth/death dates from a child's death (or fallback)
+                date, having already decided there is no useful birth date.
+                This process is very uncertain, as the child may have died in
+                infancy or at the age of 100.
+                Returns: (birth_date, death_date, explain, child)
+                        if valid dates were found,
+                        otherwise: None
+                """
+                nonlocal child, years
+                dobj = evnt.get_date_object()
+                if dobj.get_start_date() != Date.EMPTY:
+                    dretbirth = Date(dobj)
+                    child_death_yr = dobj.get_year()
+                    min_birth_yr = child_death_yr - (years + self.MAX_AGE_PROB_ALIVE)
+                    max_birth_yr = child_death_yr - years
+                    birth_range = list(Date.EMPTY + Date.EMPTY)
+                    birth_range[Date._POS_YR] = min_birth_yr
+                    birth_range[Date._POS_RYR] = max_birth_yr
+                    dretbirth.set(modifier=Date.MOD_RANGE, value=tuple(birth_range))
+                    dretdeath = dretbirth.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE)
+                    dretdeath.set2_yr_mon_day_offset(
+                        year=self.MAX_AGE_PROB_ALIVE + years
+                    )
+                    return (
+                        dretbirth,
+                        dretdeath,
+                        explain,
+                        child,
+                    )
+                return None
+
             if person.handle in self.pset:
                 return (None, None, "", None)
             self.pset.add(person.handle)
@@ -432,31 +507,21 @@ class ProbablyAlive:
                     child_birth_ref = child.get_birth_ref()
                     if child_birth_ref:
                         child_birth = self.db.get_event_from_handle(child_birth_ref.ref)
-                        dobj = child_birth.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            d = Date(dobj)
-                            val = d.get_start_date()
-                            val = d.get_year() - years
-                            d.set_year(val)
-                            return (
-                                d,
-                                d.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE),
-                                _("descendant birth date"),
-                                child,
-                            )
+                        rval = get_bd_from_child_birth_event(
+                            child_birth,
+                            _("descendant birth date"),
+                        )
+                        if rval is not None:
+                            return rval
                     child_death_ref = child.get_death_ref()
                     if child_death_ref:
                         child_death = self.db.get_event_from_handle(child_death_ref.ref)
-                        dobj = child_death.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            return (
-                                dobj.copy_offset_ymd(-self.AVG_GENERATION_GAP),
-                                dobj.copy_offset_ymd(
-                                    -self.AVG_GENERATION_GAP + self.MAX_AGE_PROB_ALIVE
-                                ),
-                                _("descendant death date"),
-                                child,
-                            )
+                        rval = get_bd_from_child_death_event(
+                            child_death, _("descendant death date")
+                        )
+                        if rval is not None:
+                            return rval
+
                     date1, date2, explain, other = descendants_too_old(
                         child, years + self.AVG_GENERATION_GAP
                     )
@@ -464,33 +529,21 @@ class ProbablyAlive:
                         return date1, date2, explain, other
                     # Check fallback data:
                     for ev_ref in child.get_primary_event_ref_list():
-                        ev = self.db.get_event_from_handle(ev_ref.ref)
-                        if ev and ev.type.is_birth_fallback():
-                            dobj = ev.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                d = Date(dobj)
-                                val = d.get_start_date()
-                                val = d.get_year() - years
-                                d.set_year(val)
-                                return (
-                                    d,
-                                    d.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE),
-                                    _("descendant birth-related date"),
-                                    child,
-                                )
+                        evnt = self.db.get_event_from_handle(ev_ref.ref)
+                        if evnt and evnt.type.is_birth_fallback():
+                            rval = get_bd_from_child_birth_event(
+                                evnt,
+                                _("descendant birth-related date"),
+                            )
+                            if rval is not None:
+                                return rval
 
-                        elif ev and ev.type.is_death_fallback():
-                            dobj = ev.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                return (
-                                    dobj.copy_offset_ymd(-self.AVG_GENERATION_GAP),
-                                    dobj.copy_offset_ymd(
-                                        -self.AVG_GENERATION_GAP
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("descendant death-related date"),
-                                    child,
-                                )
+                        elif evnt and evnt.type.is_death_fallback():
+                            rval = get_bd_from_child_death_event(
+                                evnt, _("descendant death-related date")
+                            )
+                            if rval is not None:
+                                return rval
 
             return (None, None, "", None)
 
