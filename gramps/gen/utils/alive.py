@@ -521,12 +521,6 @@ class ProbablyAlive:
                         )
                         if rval is not None:
                             return rval
-
-                    date1, date2, explain, other = descendants_too_old(
-                        child, years + self.AVG_GENERATION_GAP
-                    )
-                    if date1 and date2:
-                        return date1, date2, explain, other
                     # Check fallback data:
                     for ev_ref in child.get_primary_event_ref_list():
                         evnt = self.db.get_event_from_handle(ev_ref.ref)
@@ -544,6 +538,11 @@ class ProbablyAlive:
                             )
                             if rval is not None:
                                 return rval
+                    date1, date2, explain, other = descendants_too_old(
+                        child, years + self.AVG_GENERATION_GAP
+                    )
+                    if date1 and date2:
+                        return date1, date2, explain, other
 
             return (None, None, "", None)
 
@@ -871,7 +870,7 @@ def probably_alive(
 
     if not explain.startswith("DIRECT"):
         if relative is  None:
-            rel_id = "unkn"
+            rel_id = "nobody"
         else:
             rel_id = relative.get_gramps_id()
         LOG.debug(
