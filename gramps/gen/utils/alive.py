@@ -84,7 +84,7 @@ class ProbablyAlive:
         max_sib_age_diff=None,
         max_age_prob_alive=None,
         avg_generation_gap=None,
-        min_generation_years=None
+        min_generation_years=None,
     ):
         self.db = db
         if max_sib_age_diff is None:
@@ -111,7 +111,7 @@ class ProbablyAlive:
         known_to_be_dead = False
         min_birth_year = None
         max_birth_year = None
-        min_birth_year_from_death = None    # values derived from 110 year extrapolations
+        min_birth_year_from_death = None  # values derived from 110 year extrapolations
         max_birth_year_from_death = None
         # these min/max parameters are simply years
         sib_birth_min, sib_birth_max = (None, None)
@@ -135,7 +135,13 @@ class ProbablyAlive:
             explain_death = ""
 
             if not class_or_handle:
-                return (birth_date, death_date, death_found, explain_birth, explain_death)
+                return (
+                    birth_date,
+                    death_date,
+                    death_found,
+                    explain_birth,
+                    explain_death,
+                )
 
             if isinstance(class_or_handle, Person):
                 thisperson = class_or_handle
@@ -146,7 +152,13 @@ class ProbablyAlive:
 
             if not thisperson:
                 LOG.debug("    get_person_bdm: null person called")
-                return (birth_date, death_date, death_found, explain_birth, explain_death)
+                return (
+                    birth_date,
+                    death_date,
+                    death_found,
+                    explain_birth,
+                    explain_death,
+                )
             # is there an actual death record?  Even if yes, there may be no date,
             # in which case the EMPTY date is reported for the event.
             death_ref = thisperson.get_death_ref()
@@ -178,7 +190,7 @@ class ProbablyAlive:
                                 explain_death = _("date fallback")
                                 if death_date.get_modifier() == Date.MOD_NONE:
                                     death_date.set_modifier(Date.MOD_BEFORE)
-                                break   # we found a valid date, stop looking.
+                                break  # we found a valid date, stop looking.
             # At this point:
             # * death_found is False: (no death indication found); or
             # * death_found is True. (death confirmed somehow);  In which case:
@@ -211,9 +223,13 @@ class ProbablyAlive:
 
             return (birth_date, death_date, death_found, explain_birth, explain_death)
 
-        birth_date, death_date, known_to_be_dead, explain_birth_min, explain_death = get_person_bdm(person)
+        birth_date, death_date, known_to_be_dead, explain_birth_min, explain_death = (
+            get_person_bdm(person)
+        )
 
-        explanation = _("DIRECT birth: ") + explain_birth_min + _(", death: ") + explain_death
+        explanation = (
+            _("DIRECT birth: ") + explain_birth_min + _(", death: ") + explain_death
+        )
         if death_date is not None and birth_date is not None:
             return (birth_date, death_date, explanation, person)  # direct self evidence
 
@@ -232,20 +248,24 @@ class ProbablyAlive:
                     max_birth_year_from_death = death_date.get_year()
                     min_birth_year_from_death = max_birth_year - self.MAX_AGE_PROB_ALIVE
 
-            m_birth, m_death = (None, None)         # mother's birth and death dates
-            f_birth, f_death = (None, None)         # father's
+            m_birth, m_death = (None, None)  # mother's birth and death dates
+            f_birth, f_death = (None, None)  # father's
             # the following 6 vars are not used, they are just placeholders for returned values from get_person_bdm()
             m_known_dead = f_known_dead = False
             m_explain_birth = m_explain_death = ""
             f_explain_birth = f_explain_death = ""
-            parents = None          # Family with parents
+            parents = None  # Family with parents
             parenth = person.get_main_parents_family_handle()
             if parenth:
                 parents = self.db.get_family_from_handle(parenth)
                 mum = parents.get_mother_handle()
-                m_birth, m_death, m_known_dead, m_explain_birth, m_explain_death = get_person_bdm(mum)
+                m_birth, m_death, m_known_dead, m_explain_birth, m_explain_death = (
+                    get_person_bdm(mum)
+                )
                 dad = parents.get_father_handle()
-                f_birth, f_death, f_known_dead, f_explain_birth, f_explain_death = get_person_bdm(dad)
+                f_birth, f_death, f_known_dead, f_explain_birth, f_explain_death = (
+                    get_person_bdm(dad)
+                )
             # now scan siblings
             family_list = person.get_parent_family_handle_list()
             for family_handle in family_list:
@@ -253,7 +273,9 @@ class ProbablyAlive:
                 if family is None:
                     continue
                 if parents is not None and family != parents:
-                    LOG.debug( "      skipping family {}.".format(family.get_gramps_id()))
+                    LOG.debug(
+                        "      skipping family {}.".format(family.get_gramps_id())
+                    )
                     continue
                 for child_ref in family.get_child_ref_list():
                     child_handle = child_ref.ref
@@ -306,7 +328,7 @@ class ProbablyAlive:
                 max_birth_year = m_death.get_year()
                 explain_birth_max = _("mother's death")
             if f_death:
-                max_from_f = f_death.get_year()+1
+                max_from_f = f_death.get_year() + 1
                 if max_birth_year is None or max_from_f < max_birth_year:
                     max_birth_year = max_from_f
                     explain_birth_max = _("father's death")
@@ -328,21 +350,21 @@ class ProbablyAlive:
                 explain_birth_max = _("youngest sibling's age")
 
         if birth_date is None or not birth_date.is_valid():
-            birth_date = Date()     # make sure we have an empty date
+            birth_date = Date()  # make sure we have an empty date
             #  use proxy estimate
             if min_birth_year and max_birth_year:
                 # create a range set
-                birth_range = list(Date.EMPTY + Date.EMPTY )
+                birth_range = list(Date.EMPTY + Date.EMPTY)
                 birth_range[Date._POS_YR] = min_birth_year
                 birth_range[Date._POS_RYR] = max_birth_year
-                birth_date.set(modifier = Date.MOD_RANGE, value=tuple(birth_range))
+                birth_date.set(modifier=Date.MOD_RANGE, value=tuple(birth_range))
             else:
                 if min_birth_year:
-                    birth_date.set_yr_mon_day(min_birth_year,1,1)
-                    birth_date.set_modifier(Date.MOD_AFTER )
+                    birth_date.set_yr_mon_day(min_birth_year, 1, 1)
+                    birth_date.set_modifier(Date.MOD_AFTER)
                 elif max_birth_year:
                     birth_date.set_yr_mon_day(max_birth_year, 12, 31)
-                    birth_date.set_modifier(Date.MOD_BEFORE )
+                    birth_date.set_modifier(Date.MOD_BEFORE)
             birth_date.recalc_sort_value()
 
         # If we have no death date but we know death has happened then
@@ -351,18 +373,22 @@ class ProbablyAlive:
         if death_date is None:
             if birth_date and birth_date.is_valid():
                 death_date = Date(birth_date)
-                max_death_date = birth_date.copy_offset_ymd(year=self.MAX_AGE_PROB_ALIVE)
+                max_death_date = birth_date.copy_offset_ymd(
+                    year=self.MAX_AGE_PROB_ALIVE
+                )
                 if known_to_be_dead:
                     if max_death_date.match(Today(), ">="):
                         max_death_date = Today()
-                        max_death_date.set_yr_mon_day_offset(day=-1) # make it yesterday
+                        max_death_date.set_yr_mon_day_offset(
+                            day=-1
+                        )  # make it yesterday
                     # range start value stays at birth date
                     death_date.set_modifier(Date.MOD_RANGE)
                     death_date.set_text_value("")
                     death_date.set2_yr_mon_day(
                         max_death_date.get_year(),
                         max_death_date.get_month(),
-                        max_death_date.get_day()
+                        max_death_date.get_day(),
                     )
                     explain_death = _("birth date and known to be dead")
                 else:
@@ -379,7 +405,9 @@ class ProbablyAlive:
         if explain_birth_max == "":
             explanation = _("birth: ") + explain_birth_min
         else:
-            explanation = _("birth: ") + explain_birth_min + _(" and ") + explain_birth_max
+            explanation = (
+                _("birth: ") + explain_birth_min + _(" and ") + explain_birth_max
+            )
         explanation += _(", death: ") + explain_death
         explanation = "2ND + " + explanation
         if birth_date.is_valid() and death_date.is_valid():
@@ -664,10 +692,12 @@ class ProbablyAlive:
         # In reality,
 
         if not is_spouse:  # if you are not in recursion, let's recurse:
-            LOG.debug("    ----- trying spouse check: birth {}, death {}".format(
-                "valid" if birth_date.is_valid() else "indeterminate",
-                "valid" if death_date.is_valid() else "indeterminate",
-            ))
+            LOG.debug(
+                "    ----- trying spouse check: birth {}, death {}".format(
+                    "valid" if birth_date.is_valid() else "indeterminate",
+                    "valid" if death_date.is_valid() else "indeterminate",
+                )
+            )
             for family_handle in person.get_family_handle_list():
                 family = self.db.get_family_from_handle(family_handle)
                 if family:
@@ -800,10 +830,12 @@ def probably_alive(
     :param max_age_prob_alive: maximum age of a person, in years
     :param avg_generation_gap: average generation gap, in years
     """
-    LOG.debug(" === [{}] {}: ".format(
-        person.get_gramps_id(),
-        person.get_primary_name().get_gedcom_name(),
-    ))
+    LOG.debug(
+        " === [{}] {}: ".format(
+            person.get_gramps_id(),
+            person.get_primary_name().get_gedcom_name(),
+        )
+    )
     # First, get the probable birth and death ranges for
     # this person from the real database:
     birth, death, explain, relative = probably_alive_range(
@@ -812,21 +844,23 @@ def probably_alive(
     if current_date is None:
         current_date = Today()
     elif not current_date.is_valid():
-        current_date = Today()s
+        current_date = Today()
 
     if not explain.startswith("DIRECT"):
-        LOG.debug("      b.{}, d.{} vs {} - {}".format(
-            birth,
-            death,
-            current_date,
-            explain,
+        LOG.debug(
+            "      b.{}, d.{} vs {} - {}".format(
+                birth,
+                death,
+                current_date,
+                explain,
+            )
         )
-    )
     if not birth or not death:
         # no evidence, must consider alive
-        LOG.debug("      [{}] {}: decided alive - no evidence".format(
-            person.get_gramps_id(),
-            person.get_primary_name().get_gedcom_name() )
+        LOG.debug(
+            "      [{}] {}: decided alive - no evidence".format(
+                person.get_gramps_id(), person.get_primary_name().get_gedcom_name()
+            )
         )
         return (True, None, None, _("no evidence"), None) if return_range else True
     # must have dates from here:
@@ -840,10 +874,19 @@ def probably_alive(
         (bthmin, bthmax) = birth.get_start_stop_range()
         (dthmin, dthmax) = death.get_start_stop_range()
         (dmin, dmax) = current_date.get_start_stop_range()
-        LOG.debug("        alive={}, btest: {}, dtest: {} (born {}-{}, dd {}-{}) vs ({}-{})".format(
-            result, current_date.match(birth, ">="), current_date.match(death, "<"),
-            bthmin, bthmax, dthmin, dthmax, dmin, dmax
-            ) )
+        LOG.debug(
+            "        alive={}, btest: {}, dtest: {} (born {}-{}, dd {}-{}) vs ({}-{})".format(
+                result,
+                current_date.match(birth, ">="),
+                current_date.match(death, "<"),
+                bthmin,
+                bthmax,
+                dthmin,
+                dthmax,
+                dmin,
+                dmax,
+            )
+        )
     if return_range:
         return (result, birth, death, explain, relative)
     else:
