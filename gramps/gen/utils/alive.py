@@ -255,7 +255,7 @@ class ProbablyAlive:
                 # person died so guess initial limits to birth date
                 if death_date.get_year_valid():
                     max_birth_year_from_death = death_date.get_year()
-                    min_birth_year_from_death = max_birth_year - self.MAX_AGE_PROB_ALIVE
+                    min_birth_year_from_death = max_birth_year_from_death - self.MAX_AGE_PROB_ALIVE
 
             m_birth, m_death = (None, None)  # mother's birth and death dates
             f_birth, f_death = (None, None)  # father's
@@ -323,7 +323,7 @@ class ProbablyAlive:
                     min_birth_year = min_from_f
                     explain_birth_min = _("father's age")
             if min_birth_year_from_death:
-                if min_birth_year_from_death > min_birth_year:
+                if min_birth_year is None or min_birth_year_from_death > min_birth_year:
                     min_birth_year = min_birth_year_from_death
                     explain_birth_min = _("from death date")
             # Calculate the latest year that the child could have been born
@@ -335,9 +335,10 @@ class ProbablyAlive:
                 if max_birth_year is None or max_from_f < max_birth_year:
                     max_birth_year = max_from_f
                     explain_birth_max = _("father's death")
-            if max_birth_year_from_death and max_birth_year_from_death < max_birth_year:
-                max_birth_year = max_birth_year_from_death
-                explain_birth_max = _("person's death")
+            if max_birth_year_from_death:
+                if max_birth_year is None or max_birth_year_from_death < max_birth_year:
+                    max_birth_year = max_birth_year_from_death
+                    explain_birth_max = _("person's death")
 
         # sib_xx_min/max are either both None or both have a value (maybe the same)
         if sib_birth_max:
@@ -872,12 +873,17 @@ def probably_alive(
         current_date = Today()
 
     if not explain.startswith("DIRECT"):
+        if relative is  None:
+            rel_id = "unkn"
+        else:
+            rel_id = relative.get_gramps_id()
         LOG.debug(
-            "      b.%s, d.%s vs %s - %s",
+            "      b.%s, d.%s vs %s - %s to [%s]",
             birth,
             death,
             current_date,
             explain,
+            rel_id,
         )
     if not birth or not death:
         # no evidence, must consider alive
