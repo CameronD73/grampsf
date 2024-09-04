@@ -513,14 +513,6 @@ class ProbablyAlive:
                         )
                         if rval is not None:
                             return rval
-                    child_death_ref = child.get_death_ref()
-                    if child_death_ref:
-                        child_death = self.db.get_event_from_handle(child_death_ref.ref)
-                        rval = get_bd_from_child_death_event(
-                            child_death, _("descendant death date")
-                        )
-                        if rval is not None:
-                            return rval
                     # Check birth fallback data:
                     for ev_ref in child.get_primary_event_ref_list():
                         evnt = self.db.get_event_from_handle(ev_ref.ref)
@@ -531,8 +523,16 @@ class ProbablyAlive:
                             )
                             if rval is not None:
                                 return rval
-
-                    # Check birth fallback data:
+                    # check primary death events
+                    child_death_ref = child.get_death_ref()
+                    if child_death_ref:
+                        child_death = self.db.get_event_from_handle(child_death_ref.ref)
+                        rval = get_bd_from_child_death_event(
+                            child_death, _("descendant death date")
+                        )
+                        if rval is not None:
+                            return rval
+                    # Check death fallback data:
                     for ev_ref in child.get_primary_event_ref_list():
                         evnt = self.db.get_event_from_handle(ev_ref.ref)
                         if evnt and evnt.type.is_death_fallback():
