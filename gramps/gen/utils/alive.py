@@ -485,9 +485,6 @@ class ProbablyAlive:
                     birth_range[Date._POS_RYR] = max_birth_yr
                     dretbirth.set(modifier=Date.MOD_RANGE, value=tuple(birth_range))
                     dretdeath = dretbirth.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE)
-                    dretdeath.set2_yr_mon_day_offset(
-                        year=self.MAX_AGE_PROB_ALIVE + years
-                    )
                     return (
                         dretbirth,
                         dretdeath,
