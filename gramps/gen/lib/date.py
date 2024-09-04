@@ -1041,12 +1041,12 @@ class Date:
         Comparison  Returns
         ==========  =======================================================
         =,==        True if any part of other_date matches any part of self
-        <           True if any part of other_date < any part of self
-        <=          True if any part of other_date <= any part of self
-        <<          True if all parts of other_date < all parts of self
-        >           True if any part of other_date > any part of self
-        >=          True if any part of other_date >= any part of self
-        >>          True if all parts of other_date > all parts of self
+        <           True if any part of self < any part of other_date
+        <=          True if any part of self <= any part of other_date
+        <<          True if all parts of self < all parts of other_date
+        >           True if any part of self > any part of other_date
+        >=          True if any part of self >= any part of other_date
+        >>          True if all parts of self > all parts of other_date
         ==========  =======================================================
         """
         if (
