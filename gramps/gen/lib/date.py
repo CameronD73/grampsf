@@ -1461,6 +1461,7 @@ class Date(BaseObject):
     def set_yr_mon_day_offset(self, year=0, month=0, day=0):
         """
         Offset the date by the given year, month, and day values.
+        If the source is a compound date then both are offset.
         """
         if self.__set_yr_mon_day_offset(
             year, month, day, Date._POS_YR, Date._POS_MON, Date._POS_DAY
@@ -1484,6 +1485,7 @@ class Date(BaseObject):
     def copy_offset_ymd(self, year=0, month=0, day=0):
         """
         Return a Date copy based on year, month, and day offset.
+        If the source is a compound date then both are offset.
         """
         orig_cal = self.calendar
         if self.calendar != 0:
