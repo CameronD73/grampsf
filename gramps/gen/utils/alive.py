@@ -568,6 +568,7 @@ class ProbablyAlive:
         if date1 and date2:
             return (date1, date2, explain, other)
 
+        self.pset = set()   # clear the list from descendant check
         def ancestors_too_old(person, year):
             if person.handle in self.pset:
                 return (None, None, "", None)
