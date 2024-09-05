@@ -573,153 +573,113 @@ class ProbablyAlive:
             if person.handle in self.pset:
                 return (None, None, "", None)
             self.pset.add(person.handle)
-            LOG.debug(
-                "ancestors_too_old('%s', %d)", name_displayer.display(person), year
-            )
+            # First, a couple of routines to reduce duplication
+            def get_bd_from_ancestor(parent_handle):
+                """
+                Estimate birth/death dates of a person from parent's dates.
+                Checks parents first, then runs recursively on mother's line
+                and then father's line
+
+                Returns: (birth_date, death_date, explain, parent)
+                        if valid dates were found (or estimated),
+                        otherwise: None
+                """
+                nonlocal year
+                if parent_handle:
+                    parent = self.db.get_person_from_handle(parent_handle)
+                    parent_birth_ref = parent.get_birth_ref()
+                    if parent_birth_ref and parent_birth_ref.get_role().is_primary():
+                        parent_birth = self.db.get_event_from_handle(
+                            parent_birth_ref.ref
+                        )
+                        dobj = parent_birth.get_date_object()
+                        if dobj.get_start_date() != Date.EMPTY:
+                            return (
+                                dobj.copy_offset_ymd(-year),
+                                dobj.copy_offset_ymd(-year + self.MAX_AGE_PROB_ALIVE),
+                                _("ancestor birth date"),
+                                parent,
+                            )
+                    parent_death_ref = parent.get_death_ref()
+                    if parent_death_ref and parent_death_ref.get_role().is_primary():
+                        parent_death = self.db.get_event_from_handle(
+                            parent_death_ref.ref
+                        )
+                        dobj = parent_death.get_date_object()
+                        if dobj.get_start_date() != Date.EMPTY:
+                            return (
+                                dobj.copy_offset_ymd(-year - self.MAX_AGE_PROB_ALIVE),
+                                dobj.copy_offset_ymd(
+                                    -year
+                                    - self.MAX_AGE_PROB_ALIVE
+                                    + self.MAX_AGE_PROB_ALIVE
+                                ),
+                                _("ancestor death date"),
+                                parent,
+                            )
+
+                    # Check fallback data:
+                    for ev_ref in parent.get_primary_event_ref_list():
+                        evnt = self.db.get_event_from_handle(ev_ref.ref)
+                        if evnt and evnt.type.is_birth_fallback():
+                            dobj = evnt.get_date_object()
+                            if dobj.get_start_date() != Date.EMPTY:
+                                return (
+                                    dobj.copy_offset_ymd(-year),
+                                    dobj.copy_offset_ymd(
+                                        -year + self.MAX_AGE_PROB_ALIVE
+                                    ),
+                                    _("ancestor birth-related date"),
+                                    parent,
+                                )
+
+                        elif evnt and evnt.type.is_death_fallback():
+                            dobj = evnt.get_date_object()
+                            if dobj.get_start_date() != Date.EMPTY:
+                                return (
+                                    dobj.copy_offset_ymd(
+                                        -year - self.MAX_AGE_PROB_ALIVE
+                                    ),
+                                    dobj.copy_offset_ymd(
+                                        -year
+                                        - self.MAX_AGE_PROB_ALIVE
+                                        + self.MAX_AGE_PROB_ALIVE
+                                    ),
+                                    _("ancestor death-related date"),
+                                    parent,
+                                )
+                return None
+
             family_handle = person.get_main_parents_family_handle()
             if family_handle:
                 family = self.db.get_family_from_handle(family_handle)
                 if not family:
                     # can happen with LivingProxyDb(PrivateProxyDb(db))
                     return (None, None, "", None)
+                mother_handle = family.get_mother_handle()
+                retval = get_bd_from_ancestor(mother_handle)
                 father_handle = family.get_father_handle()
-                if father_handle:
-                    father = self.db.get_person_from_handle(father_handle)
-                    father_birth_ref = father.get_birth_ref()
-                    if father_birth_ref and father_birth_ref.get_role().is_primary():
-                        father_birth = self.db.get_event_from_handle(
-                            father_birth_ref.ref
-                        )
-                        dobj = father_birth.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            return (
-                                dobj.copy_offset_ymd(-year),
-                                dobj.copy_offset_ymd(-year + self.MAX_AGE_PROB_ALIVE),
-                                _("ancestor birth date"),
-                                father,
-                            )
-                    father_death_ref = father.get_death_ref()
-                    if father_death_ref and father_death_ref.get_role().is_primary():
-                        father_death = self.db.get_event_from_handle(
-                            father_death_ref.ref
-                        )
-                        dobj = father_death.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            return (
-                                dobj.copy_offset_ymd(-year - self.MAX_AGE_PROB_ALIVE),
-                                dobj.copy_offset_ymd(
-                                    -year
-                                    - self.MAX_AGE_PROB_ALIVE
-                                    + self.MAX_AGE_PROB_ALIVE
-                                ),
-                                _("ancestor death date"),
-                                father,
-                            )
+                if retval is None:
+                    retval = get_bd_from_ancestor(father_handle)
 
-                    # Check fallback data:
-                    for ev_ref in father.get_primary_event_ref_list():
-                        evnt = self.db.get_event_from_handle(ev_ref.ref)
-                        if evnt and evnt.type.is_birth_fallback():
-                            dobj = evnt.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                return (
-                                    dobj.copy_offset_ymd(-year),
-                                    dobj.copy_offset_ymd(
-                                        -year + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("ancestor birth-related date"),
-                                    father,
-                                )
-
-                        elif evnt and evnt.type.is_death_fallback():
-                            dobj = evnt.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                return (
-                                    dobj.copy_offset_ymd(
-                                        -year - self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    dobj.copy_offset_ymd(
-                                        -year
-                                        - self.MAX_AGE_PROB_ALIVE
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("ancestor death-related date"),
-                                    father,
-                                )
-
+                if retval is not None:
+                    return retval
+                # nothing found yet, so recurse down the mother's line first
+                # This becomes a depth-first search, which is undesirable,
+                # but by this stage it will be getting quite unreliable so
+                # not worth the effort to fix.
+                if mother_handle is not None:
                     date1, date2, explain, other = ancestors_too_old(
-                        father, year - self.AVG_GENERATION_GAP
+                        self.db.get_person_from_handle(mother_handle),
+                        year - self.AVG_GENERATION_GAP
                     )
                     if date1 and date2:
-                        return date1, date2, explain, other
-
-                mother_handle = family.get_mother_handle()
-                if mother_handle:
-                    mother = self.db.get_person_from_handle(mother_handle)
-                    mother_birth_ref = mother.get_birth_ref()
-                    if mother_birth_ref and mother_birth_ref.get_role().is_primary():
-                        mother_birth = self.db.get_event_from_handle(
-                            mother_birth_ref.ref
-                        )
-                        dobj = mother_birth.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            return (
-                                dobj.copy_offset_ymd(-year),
-                                dobj.copy_offset_ymd(-year + self.MAX_AGE_PROB_ALIVE),
-                                _("ancestor birth date"),
-                                mother,
-                            )
-                    mother_death_ref = mother.get_death_ref()
-                    if mother_death_ref and mother_death_ref.get_role().is_primary():
-                        mother_death = self.db.get_event_from_handle(
-                            mother_death_ref.ref
-                        )
-                        dobj = mother_death.get_date_object()
-                        if dobj.get_start_date() != Date.EMPTY:
-                            return (
-                                dobj.copy_offset_ymd(-year - self.MAX_AGE_PROB_ALIVE),
-                                dobj.copy_offset_ymd(
-                                    -year
-                                    - self.MAX_AGE_PROB_ALIVE
-                                    + self.MAX_AGE_PROB_ALIVE
-                                ),
-                                _("ancestor death date"),
-                                mother,
-                            )
-
-                    # Check fallback data:
-                    for ev_ref in mother.get_primary_event_ref_list():
-                        evnt = self.db.get_event_from_handle(ev_ref.ref)
-                        if evnt and evnt.type.is_birth_fallback():
-                            dobj = evnt.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                return (
-                                    dobj.copy_offset_ymd(-year),
-                                    dobj.copy_offset_ymd(
-                                        -year + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("ancestor birth-related date"),
-                                    mother,
-                                )
-
-                        elif evnt and evnt.type.is_death_fallback():
-                            dobj = evnt.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                return (
-                                    dobj.copy_offset_ymd(
-                                        -year - self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    dobj.copy_offset_ymd(
-                                        -year
-                                        - self.MAX_AGE_PROB_ALIVE
-                                        + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("ancestor death-related date"),
-                                    mother,
-                                )
-
+                        return (date1, date2, explain, other)
+                # nothing found yet, try the father's line
+                if father_handle is not None:
                     date1, date2, explain, other = ancestors_too_old(
-                        mother, year - self.AVG_GENERATION_GAP
+                        self.db.get_person_from_handle(father_handle),
+                        year - self.AVG_GENERATION_GAP
                     )
                     if date1 and date2:
                         return (date1, date2, explain, other)
