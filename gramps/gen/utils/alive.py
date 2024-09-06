@@ -277,8 +277,9 @@ class ProbablyAlive:
                     continue
                 if parents is not None and family != parents:
                     LOG.debug(
-                        "      skipping family %s.",
+                        "      skipping family %s but parents is %s.",
                         family.get_gramps_id(),
+                        parents.get_gramps_id(),
                     )
                     continue
                 for child_ref in family.get_child_ref_list():
@@ -496,6 +497,9 @@ class ProbablyAlive:
                 return None
 
             if person.handle in self.pset:
+                LOG.debug( "....... person %s already in descendants test",
+                          person.get_gramps_id()
+                          )
                 return (None, None, "", None)
             self.pset.add(person.handle)
             for family_handle in person.get_family_handle_list():
@@ -554,6 +558,7 @@ class ProbablyAlive:
         # If there are descendants that are too old for the person to have
         # been alive in the current year then they must be dead.
 
+        LOG.debug(    "    ------- checking descendants of %s", person.get_gramps_id())
         date1, date2, explain, other = None, None, "", None
         try:
             date1, date2, explain, other = descendants_too_old(
@@ -571,6 +576,9 @@ class ProbablyAlive:
         self.pset = set()   # clear the list from descendant check
         def ancestors_too_old(person, year):
             if person.handle in self.pset:
+                LOG.debug( "....... person %s already in ancestor test",
+                          person.get_gramps_id()
+                          )
                 return (None, None, "", None)
             self.pset.add(person.handle)
             # First, a couple of routines to reduce duplication
@@ -688,8 +696,9 @@ class ProbablyAlive:
             return (None, None, "", None)
 
         try:
+            LOG.debug(    "    ------ checking ancestors %s", person.get_gramps_id())
             # If there are ancestors that would be too old in the current year
-            # then assume our person must be dead too.
+            # by more than n generations then assume our person must be dead too.
             date1, date2, explain, other = ancestors_too_old(
                 person, -int(self.AVG_GENERATION_GAP)
             )
