@@ -600,6 +600,21 @@ class ProbablyAlive:
                                 _("ancestor birth date"),
                                 parent,
                             )
+                    # Check for fallback birth data:
+                    for ev_ref in parent.get_primary_event_ref_list():
+                        evnt = self.db.get_event_from_handle(ev_ref.ref)
+                        if evnt and evnt.type.is_birth_fallback():
+                            dobj = evnt.get_date_object()
+                            if dobj.get_start_date() != Date.EMPTY:
+                                return (
+                                    dobj.copy_offset_ymd(-year),
+                                    dobj.copy_offset_ymd(
+                                        -year + self.MAX_AGE_PROB_ALIVE
+                                    ),
+                                    _("ancestor birth-related date"),
+                                    parent,
+                                )
+                    # now check possible death dates
                     parent_death_ref = parent.get_death_ref()
                     if parent_death_ref and parent_death_ref.get_role().is_primary():
                         parent_death = self.db.get_event_from_handle(
@@ -617,23 +632,9 @@ class ProbablyAlive:
                                 _("ancestor death date"),
                                 parent,
                             )
-
-                    # Check fallback data:
                     for ev_ref in parent.get_primary_event_ref_list():
                         evnt = self.db.get_event_from_handle(ev_ref.ref)
-                        if evnt and evnt.type.is_birth_fallback():
-                            dobj = evnt.get_date_object()
-                            if dobj.get_start_date() != Date.EMPTY:
-                                return (
-                                    dobj.copy_offset_ymd(-year),
-                                    dobj.copy_offset_ymd(
-                                        -year + self.MAX_AGE_PROB_ALIVE
-                                    ),
-                                    _("ancestor birth-related date"),
-                                    parent,
-                                )
-
-                        elif evnt and evnt.type.is_death_fallback():
+                        if evnt and evnt.type.is_death_fallback():
                             dobj = evnt.get_date_object()
                             if dobj.get_start_date() != Date.EMPTY:
                                 return (
