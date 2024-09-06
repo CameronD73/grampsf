@@ -719,25 +719,49 @@ class ProbablyAlive:
                 if family:
                     mother_handle = family.get_mother_handle()
                     father_handle = family.get_father_handle()
+                    if mother_handle is None or father_handle is None:
+                        LOG.debug("         single parent family: [%s]", family.get_gramps_id())
+                        # no recorded spouse
+                        continue
                     spouse = None
-                    if mother_handle == person.handle and father_handle:
+                    if mother_handle == person.handle:
                         spouse = self.db.get_person_from_handle(father_handle)
-                    elif father_handle == person.handle and mother_handle:
+                    elif father_handle == person.handle:
                         spouse = self.db.get_person_from_handle(mother_handle)
                     if spouse is not None:
                         date1, date2, explain, other = self.probably_alive_range(
                             spouse, is_spouse=True
                         )
+                        LOG.debug( "            found spouse [%s], returned b:%s, d:%s, because:%s",
+                                   spouse.get_gramps_id(),
+                                   date1,
+                                   date2,
+                                   explain,
+                                   )
                         if date1 and date1.get_year() != 0:
+                            birth_date = date1.copy_offset_ymd(-self.AVG_GENERATION_GAP)
+                            if birth_date.is_compound():
+                                birth_date.set2_yr_mon_day_offset(2*self.AVG_GENERATION_GAP)
+                            else:
+                                birth_date.set_modifier(Date.MOD_RANGE)
+                                birth_date.set_text_value("")
+                                # duplicate lower birth limit
+                                birth_date.set2_yr_mon_day(
+                                    birth_date.get_year(),
+                                    birth_date.get_month(),
+                                    birth_date.get_day(),
+                                )
+                                # then extend upper limit
+                                birth_date.set2_yr_mon_day_offset(
+                                    2*self.AVG_GENERATION_GAP
+                                )
+                            death_date = birth_date.copy_offset_ymd(
+                                self.MAX_AGE_PROB_ALIVE
+                            )
+                                                               
                             return (
-                                Date().copy_ymd(
-                                    date1.get_year() - self.AVG_GENERATION_GAP
-                                ),
-                                Date().copy_ymd(
-                                    date1.get_year()
-                                    + self.AVG_GENERATION_GAP
-                                    + self.MAX_AGE_PROB_ALIVE
-                                ),
+                                birth_date,
+                                death_date,
                                 _("a spouse's birth-related date, ") + explain,
                                 other,
                             )
