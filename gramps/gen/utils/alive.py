@@ -706,7 +706,7 @@ class ProbablyAlive:
         # This test gives higher uncertainty than others ...
         # We allow for an age difference +/- AVG_GENERATION_GAP
         # which, assuming defaults, results in 150 year "probably alive" range.
-        # In reality,
+        # In reality, if we have reached this far then any value may be rather unreliable
 
         if not is_spouse:  # if you are not in recursion, let's recurse:
             LOG.debug(
