@@ -399,8 +399,6 @@ class ProbablyAlive:
                     explain_death = _("birth date and known to be dead")
                 else:
                     death_date.set_yr_mon_day_offset(year=self.MAX_AGE_PROB_ALIVE)
-                    if death_date.is_compound():
-                        death_date.set2_yr_mon_day_offset(year=self.MAX_AGE_PROB_ALIVE)
                     explain_death = _("birth date")
                 death_date.recalc_sort_value()
             else:
@@ -455,14 +453,6 @@ class ProbablyAlive:
                     dretbirth = Date(dobj)
                     dretbirth.set_yr_mon_day_offset(year=(-years))
                     dretdeath = dretbirth.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE)
-                    if dretbirth.is_compound():
-                        # if is not very meaningful to adjust the upper limit of a
-                        # compound date, however it is far worse to leave any unchanged.
-                        # A better alternative might be to remove the 2nd date.
-                        dretbirth.set2_yr_mon_day_offset(year=(-years))
-                        dretdeath.set2_yr_mon_day_offset(
-                            year=(-(self.MAX_AGE_PROB_ALIVE + years))
-                        )
                     retval = (dretbirth, dretdeath, explain, child)
                 return retval
 
@@ -750,6 +740,8 @@ class ProbablyAlive:
                         if date1 and date1.get_year() != 0:
                             birth_date = date1.copy_offset_ymd(-self.AVG_GENERATION_GAP)
                             if birth_date.is_compound():
+                                # it will have already offset both values, so correct that
+                                # and then offset to be 1 GEN GAP higher.
                                 birth_date.set2_yr_mon_day_offset(2*self.AVG_GENERATION_GAP)
                             else:
                                 birth_date.set_modifier(Date.MOD_RANGE)
@@ -762,7 +754,7 @@ class ProbablyAlive:
                                 )
                                 # then extend upper limit
                                 birth_date.set2_yr_mon_day_offset(
-                                    2*self.AVG_GENERATION_GAP
+                                    self.AVG_GENERATION_GAP
                                 )
                             death_date = birth_date.copy_offset_ymd(
                                 self.MAX_AGE_PROB_ALIVE
