@@ -1417,7 +1417,7 @@ class Date(BaseObject):
         # ensure the dateval structure is suitable
         if len(self.dateval) == 4:
             dlist = list(self.dateval)
-            dlist.extend( self.EMPTY )
+            dlist.extend(self.EMPTY)
             self.dateval = tuple(dlist)
 
     def set2_yr_mon_day(self, year, month, day):
@@ -1819,13 +1819,18 @@ class Date(BaseObject):
         """
         Calculate the numerical sort value associated with the date.
         """
-        if self.dateval[Date._POS_YR] == self.dateval[Date._POS_MON] == self.dateval[Date._POS_DAY] == 0:
+        if (
+            self.dateval[Date._POS_YR]
+            == self.dateval[Date._POS_MON]
+            == self.dateval[Date._POS_DAY]
+            == 0
+        ):
             self.sortval = 0
         else:
             year, month, day = self._zero_adjust_ymd(
                 self.dateval[Date._POS_YR],
                 self.dateval[Date._POS_MON],
-                self.dateval[Date._POS_DAY]
+                self.dateval[Date._POS_DAY],
             )
             func = Date._calendar_convert[self.calendar]
             self.sortval = func(year, month, day)
