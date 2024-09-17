@@ -487,9 +487,10 @@ class ProbablyAlive:
                 return None
 
             if person.handle in self.pset:
-                LOG.debug( "....... person %s already in descendants test",
-                          person.get_gramps_id()
-                          )
+                LOG.debug(
+                    "....... person %s already in descendants test",
+                    person.get_gramps_id(),
+                )
                 return (None, None, "", None)
             self.pset.add(person.handle)
             for family_handle in person.get_family_handle_list():
@@ -548,7 +549,7 @@ class ProbablyAlive:
         # If there are descendants that are too old for the person to have
         # been alive in the current year then they must be dead.
 
-        LOG.debug(    "    ------- checking descendants of %s", person.get_gramps_id())
+        LOG.debug("    ------- checking descendants of %s", person.get_gramps_id())
         date1, date2, explain, other = None, None, "", None
         try:
             date1, date2, explain, other = descendants_too_old(
@@ -563,14 +564,16 @@ class ProbablyAlive:
         if date1 and date2:
             return (date1, date2, explain, other)
 
-        self.pset = set()   # clear the list from descendant check
+        self.pset = set()  # clear the list from descendant check
+
         def ancestors_too_old(person, year):
             if person.handle in self.pset:
-                LOG.debug( "....... person %s already in ancestor test",
-                          person.get_gramps_id()
-                          )
+                LOG.debug(
+                    "....... person %s already in ancestor test", person.get_gramps_id()
+                )
                 return (None, None, "", None)
             self.pset.add(person.handle)
+
             # First, a couple of routines to reduce duplication
             def get_bd_from_ancestor(parent_handle):
                 """
@@ -670,7 +673,7 @@ class ProbablyAlive:
                 if mother_handle is not None:
                     date1, date2, explain, other = ancestors_too_old(
                         self.db.get_person_from_handle(mother_handle),
-                        year - self.AVG_GENERATION_GAP
+                        year - self.AVG_GENERATION_GAP,
                     )
                     if date1 and date2:
                         return (date1, date2, explain, other)
@@ -678,7 +681,7 @@ class ProbablyAlive:
                 if father_handle is not None:
                     date1, date2, explain, other = ancestors_too_old(
                         self.db.get_person_from_handle(father_handle),
-                        year - self.AVG_GENERATION_GAP
+                        year - self.AVG_GENERATION_GAP,
                     )
                     if date1 and date2:
                         return (date1, date2, explain, other)
@@ -686,7 +689,7 @@ class ProbablyAlive:
             return (None, None, "", None)
 
         try:
-            LOG.debug(    "    ------ checking ancestors %s", person.get_gramps_id())
+            LOG.debug("    ------ checking ancestors %s", person.get_gramps_id())
             # If there are ancestors that would be too old in the current year
             # by more than n generations then assume our person must be dead too.
             date1, date2, explain, other = ancestors_too_old(
@@ -719,7 +722,10 @@ class ProbablyAlive:
                     mother_handle = family.get_mother_handle()
                     father_handle = family.get_father_handle()
                     if mother_handle is None or father_handle is None:
-                        LOG.debug("         single parent family: [%s]", family.get_gramps_id())
+                        LOG.debug(
+                            "         single parent family: [%s]",
+                            family.get_gramps_id(),
+                        )
                         # no recorded spouse
                         continue
                     spouse = None
@@ -731,18 +737,21 @@ class ProbablyAlive:
                         date1, date2, explain, other = self.probably_alive_range(
                             spouse, is_spouse=True
                         )
-                        LOG.debug( "            found spouse [%s], returned b:%s, d:%s, because:%s",
-                                   spouse.get_gramps_id(),
-                                   date1,
-                                   date2,
-                                   explain,
-                                   )
+                        LOG.debug(
+                            "            found spouse [%s], returned b:%s, d:%s, because:%s",
+                            spouse.get_gramps_id(),
+                            date1,
+                            date2,
+                            explain,
+                        )
                         if date1 and date1.get_year() != 0:
                             birth_date = date1.copy_offset_ymd(-self.AVG_GENERATION_GAP)
                             if birth_date.is_compound():
                                 # it will have already offset both values, so correct that
                                 # and then offset to be 1 GEN GAP higher.
-                                birth_date.set2_yr_mon_day_offset(2*self.AVG_GENERATION_GAP)
+                                birth_date.set2_yr_mon_day_offset(
+                                    2 * self.AVG_GENERATION_GAP
+                                )
                             else:
                                 birth_date.set_modifier(Date.MOD_RANGE)
                                 birth_date.set_text_value("")
@@ -759,7 +768,7 @@ class ProbablyAlive:
                             death_date = birth_date.copy_offset_ymd(
                                 self.MAX_AGE_PROB_ALIVE
                             )
-                                                               
+
                             return (
                                 birth_date,
                                 death_date,
