@@ -106,11 +106,11 @@ class ProbablyAlive:
     def probably_alive_range(self, person, is_spouse=False, immediate_fam_only=False):
         """
         Find likely birth and death date ranges, either from dates of actual
-        events recorded in the db or else estimating range outer limits from
+        events recorded in the db or else estimating range limits from
         other events in their lives or those of close family.
         If is_spouse is True then we are calling this recursively for the
         spouse of the original "person". That will be done in two passes:
-        is immediate_fam_only is True then only immediate family of spouse
+        if immediate_fam_only is True then only immediate family of spouse
         is checked, otherwise a full check is done.
 
         Returns: (birth_date, death_date, explain_text, related_person)
@@ -132,7 +132,7 @@ class ProbablyAlive:
         explain_birth_max = ""
         explain_death = ""
 
-        def get_person_bdm(class_or_handle):
+        def get_person_bd(class_or_handle):
             """
                 Looks up birth and death events for referenced person,
                 using fallback dates if necessary.
@@ -164,7 +164,7 @@ class ProbablyAlive:
                 thisperson = None
 
             if not thisperson:
-                LOG.debug("    get_person_bdm: null person called")
+                LOG.debug("    get_person_bd: null person called")
                 return (
                     birth_date,
                     death_date,
@@ -237,7 +237,7 @@ class ProbablyAlive:
             return (birth_date, death_date, death_found, explain_birth, explain_death)
 
         birth_date, death_date, known_to_be_dead, explain_birth_min, explain_death = (
-            get_person_bdm(person)
+            get_person_bd(person)
         )
 
         explanation = (
@@ -270,9 +270,9 @@ class ProbablyAlive:
             if parenth:
                 parents = self.db.get_family_from_handle(parenth)
                 mum = parents.get_mother_handle()
-                m_birth, m_death = get_person_bdm(mum)[0:2]
+                m_birth, m_death = get_person_bd(mum)[0:2]
                 dad = parents.get_father_handle()
-                f_birth, f_death = get_person_bdm(dad)[0:2]
+                f_birth, f_death = get_person_bd(dad)[0:2]
             # now scan siblings
             family_list = person.get_parent_family_handle_list()
             for family_handle in family_list:
@@ -540,19 +540,17 @@ class ProbablyAlive:
                                     )
             return (None, None, "", None)
 
-        # have finished immediate family, to try spouse..
-        if False:
-            if not is_spouse:
-                birth_date, death_date, explain, who = spouse_test(1)
-                if birth_date is not None and death_date is not None:
-                    return (birth_date, death_date, explain, who)
-            elif immediate_fam_only:
-                return (None, None, "", None)
+        # have finished immediate family, so try spouse..
+        if not is_spouse:
+            birth_date, death_date, explain, who = spouse_test(1)
+            if birth_date is not None and death_date is not None:
+                return (birth_date, death_date, explain, who)
+        elif immediate_fam_only:
+            return (None, None, "", None)
 
-        # Try looking for descendants that were born more than a lifespan
-        # ago.
+        # Try to estimate probable lifespan by scanning descendants
 
-        def descendants_too_old(person, years):
+        def estimate_bd_range_from_descendants(person, years):
             """
             Recursively scan descendants' tree to determine likely birth/death
             dates for the person specified.
@@ -670,7 +668,7 @@ class ProbablyAlive:
                             )
                             if rval is not None:
                                 return rval
-                    date1, date2, explain, other = descendants_too_old(
+                    date1, date2, explain, other = estimate_bd_range_from_descendants(
                         child, years + self.AVG_GENERATION_GAP
                     )
                     if date1 and date2:
@@ -678,13 +676,11 @@ class ProbablyAlive:
 
             return (None, None, "", None)
 
-        # If there are descendants that are too old for the person to have
-        # been alive in the current year then they must be dead.
 
-        LOG.debug("    ------- checking descendants of %s", person.get_gramps_id())
+        LOG.debug("    ------- checking descendants of [%s]", person.get_gramps_id())
         date1, date2, explain, other = None, None, "", None
         try:
-            date1, date2, explain, other = descendants_too_old(
+            date1, date2, explain, other = estimate_bd_range_from_descendants(
                 person, self.AVG_GENERATION_GAP
             )
         except RuntimeError:
@@ -698,7 +694,9 @@ class ProbablyAlive:
 
         self.pset = set()  # clear the list from descendant check
 
-        def ancestors_too_old(person, year):
+        # Try to estimate probable lifespan by scanning ancestors
+
+        def estimate_bd_range_from_ancestors(person, year):
             if person.handle in self.pset:
                 LOG.debug(
                     "....... person %s already in ancestor test", person.get_gramps_id()
@@ -803,7 +801,7 @@ class ProbablyAlive:
                 # but by this stage it will be getting quite unreliable so
                 # not worth the effort to fix.
                 if mother_handle is not None:
-                    date1, date2, explain, other = ancestors_too_old(
+                    date1, date2, explain, other = estimate_bd_range_from_ancestors(
                         self.db.get_person_from_handle(mother_handle),
                         year - self.AVG_GENERATION_GAP,
                     )
@@ -811,7 +809,7 @@ class ProbablyAlive:
                         return (date1, date2, explain, other)
                 # nothing found yet, try the father's line
                 if father_handle is not None:
-                    date1, date2, explain, other = ancestors_too_old(
+                    date1, date2, explain, other = estimate_bd_range_from_ancestors(
                         self.db.get_person_from_handle(father_handle),
                         year - self.AVG_GENERATION_GAP,
                     )
@@ -822,9 +820,7 @@ class ProbablyAlive:
 
         try:
             LOG.debug("    ------ checking ancestors %s", person.get_gramps_id())
-            # If there are ancestors that would be too old in the current year
-            # by more than n generations then assume our person must be dead too.
-            date1, date2, explain, other = ancestors_too_old(
+            date1, date2, explain, other = estimate_bd_range_from_ancestors(
                 person, -int(self.AVG_GENERATION_GAP)
             )
         except RuntimeError:
@@ -869,14 +865,16 @@ def probably_alive(
     be alive.
 
     :param current_date: a date object that is not estimated or modified
-                         (defaults to today)
+                         (defaults to today if None or a blank string)
     :param limit: number of years to check beyond death_date
     :param max_sib_age_diff: maximum sibling age difference, in years
+            if None then default to the setting in user config
     :param max_age_prob_alive: maximum age of a person, in years
+            if None then default to the setting in user config
     :param avg_generation_gap: average generation gap, in years
     """
     LOG.debug(
-        " === [%s] %s: ",
+        " === probably_alive() called for [%s] %s: ",
         person.get_gramps_id(),
         person.get_primary_name().get_gedcom_name(),
     )
@@ -896,7 +894,7 @@ def probably_alive(
         else:
             rel_id = relative.get_gramps_id()
         LOG.debug(
-            "      b.%s, d.%s vs %s - %s to [%s]",
+            "      range: b.%s, d.%s vs %s reason: %s to [%s]",
             birth,
             death,
             current_date,
@@ -906,9 +904,8 @@ def probably_alive(
     if not birth or not death:
         # no evidence, must consider alive
         LOG.debug(
-            "      [%s] %s: decided alive - no evidence",
+            "      [%s]: decided alive - no evidence",
             person.get_gramps_id(),
-            person.get_primary_name().get_gedcom_name(),
         )
         return (True, None, None, _("no evidence"), None) if return_range else True
     # must have dates from here:
