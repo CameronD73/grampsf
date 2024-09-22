@@ -263,8 +263,8 @@ class ProbablyAlive:
                         max_birth_year_from_death - self.MAX_AGE_PROB_ALIVE
                     )
 
-            m_birth, m_death = (None, None)  # mother's birth and death dates
-            f_birth, f_death = (None, None)  # father's
+            m_birth = m_death = None  # mother's birth and death dates
+            f_birth = f_death = None  # father's
             parents = None  # Family with parents
             parenth = person.get_main_parents_family_handle()
             if parenth:
@@ -305,7 +305,7 @@ class ProbablyAlive:
                                     sib_birth_min = year
                                 if sib_birth_max is None or year > sib_birth_max:
                                     sib_birth_max = year
-                    # scan even list again looking for fallback:
+                    # scan event list again looking for fallback:
                     if need_birth_fallback:
                         for ev_ref in child.get_primary_event_ref_list():
                             evnt = self.db.get_event_from_handle(ev_ref.ref)
@@ -319,7 +319,7 @@ class ProbablyAlive:
                                         sib_birth_min = year
                                     if sib_birth_max is None or year > sib_birth_max:
                                         sib_birth_max = year
-            # Now evaluate estimate based on parents and siblings:
+            # Now combine estimates based on parents and siblings:
             # Make sure child is born after both parents are old enough
             if m_birth:
                 min_birth_year = m_birth.get_year() + self.MIN_GENERATION_YEARS
@@ -421,6 +421,9 @@ class ProbablyAlive:
         if birth_date.is_valid() and death_date.is_valid():
             return (birth_date, death_date, explanation, person)
 
+        # have finished immediate family, so try spouse, as the
+        # remaining person (probably) of this generation ..
+
         def spouse_test(passnum=1):
             # test against spouse details - this is done in two passes, at different
             # stages of generating dates for the reference person.:
@@ -477,11 +480,11 @@ class ProbablyAlive:
                                 birth_date.set_text_value("")
                                 # duplicate lower birth limit
                                 birth_date.set2_yr_mon_day(
-                                    birth_date.get_year(),
-                                    birth_date.get_month(),
-                                    birth_date.get_day(),
+                                    date1.get_year(),
+                                    date1.get_month(),
+                                    date1.get_day(),
                                 )
-                                # then extend upper limit
+                                # then extend upper limit the other direction
                                 birth_date.set2_yr_mon_day_offset(
                                     self.AVG_GENERATION_GAP
                                 )
@@ -499,7 +502,7 @@ class ProbablyAlive:
                             return (
                                 Date().copy_ymd(
                                     date2.get_year()
-                                    - self.AVG_GENERATION_GAP
+                                    + self.AVG_GENERATION_GAP
                                     - self.MAX_AGE_PROB_ALIVE
                                 ),
                                 Date().copy_ymd(
@@ -540,7 +543,6 @@ class ProbablyAlive:
                                     )
             return (None, None, "", None)
 
-        # have finished immediate family, so try spouse..
         if not is_spouse:
             birth_date, death_date, explain, who = spouse_test(1)
             if birth_date is not None and death_date is not None:
@@ -676,7 +678,6 @@ class ProbablyAlive:
 
             return (None, None, "", None)
 
-
         LOG.debug("    ------- checking descendants of [%s]", person.get_gramps_id())
         date1, date2, explain, other = None, None, "", None
         try:
@@ -693,16 +694,133 @@ class ProbablyAlive:
             return (date1, date2, explain, other)
 
         self.pset = set()  # clear the list from descendant check
+        self.pseta = set()
 
         # Try to estimate probable lifespan by scanning ancestors
 
         def estimate_bd_range_from_ancestors(person, year):
+            """
+            Estimate birth and death year ranges based on a person's ancestors.
+            The year value is the average number of years between generations.
+            """
             if person.handle in self.pset:
                 LOG.debug(
                     "....... person %s already in ancestor test", person.get_gramps_id()
                 )
                 return (None, None, "", None)
             self.pset.add(person.handle)
+
+            family_handle = person.get_main_parents_family_handle()
+            if family_handle:
+                family = self.db.get_family_from_handle(family_handle)
+                if not family:
+                    # can happen with LivingProxyDb(PrivateProxyDb(db))
+                    return (None, None, "", None)
+                mother_handle = family.get_mother_handle()
+                (
+                    mother_birth,
+                    mother_death,
+                    mother_death_found,
+                    mother_expl_b,
+                    mother_expl_d,
+                ) = get_person_bd(mother_handle)
+
+                father_handle = family.get_father_handle()
+
+                (
+                    father_birth,
+                    father_death,
+                    father_death_found,
+                    father_expl_b,
+                    father_expl_d,
+                ) = get_person_bd(father_handle)
+
+                parent_birth = mother_birth
+                explan = _("mother ") + mother_expl_b
+                parenth = mother_handle
+                if parent_birth is None:
+                    parent_birth = father_birth
+                    explan = _("father ") + father_expl_b
+                    parenth = father_handle
+                elif father_birth is not None:
+                    # have both births, try for youngest
+                    if father_birth.match(mother_birth, ">"):
+                        parent_birth = father_birth
+                        explan = _("father ") + father_expl_b
+                        parenth = father_handle
+                if parent_birth is not None:
+                    person_birth = parent_birth.copy_offset_ymd(year)
+                    person_death = person_birth.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE)
+                    return (
+                        person_birth,
+                        person_death,
+                        _("ancestor ") + explan,
+                        self.db.get_person_from_handle(parenth),
+                    )
+                # no useful birth, try death...
+                parent_death = mother_death
+                explan = mother_expl_d
+                parenth = mother_handle
+                first_parent_death = mother_death
+                if parent_death is None:
+                    parent_death = father_death
+                    explan = father_expl_d
+                    parenth = father_handle
+                    first_parent_death = father_death
+                elif father_death is not None:
+                    # have both deaths, try for last to die
+                    if father_death.match(mother_death, ">"):
+                        parent_death = father_death
+                        explan = father_expl_b
+                        parenth = father_handle
+                        first_parent_death = mother_death
+                if parent_death is not None:
+                    person_birth = parent_death.copy_offset_ymd(
+                        year - self.MAX_AGE_PROB_ALIVE
+                    )
+                    person_birth.set_modifier(Date.MOD_RANGE)
+                    person_birth.set2_yr_mon_day(first_parent_death.get_year(), 1, 1)
+                    person_death = person_birth.copy_offset_ymd(self.MAX_AGE_PROB_ALIVE)
+                    return (
+                        person_birth,
+                        person_death,
+                        _("ancestor ") + explan,
+                        self.db.get_person_from_handle(parenth),
+                    )
+
+                # nothing found yet, so recurse up the mother's line first
+                # This becomes a depth-first search, which is undesirable,
+                # but by this stage it will be getting quite unreliable so
+                # not worth the effort to fix.
+                if mother_handle is not None:
+                    date1, date2, explain, other = estimate_bd_range_from_ancestors(
+                        self.db.get_person_from_handle(mother_handle),
+                        year + self.AVG_GENERATION_GAP,
+                    )
+                    if date1 and date2:
+                        return (date1, date2, explain, other)
+                # nothing found yet, try the father's line
+                if father_handle is not None:
+                    date1, date2, explain, other = estimate_bd_range_from_ancestors(
+                        self.db.get_person_from_handle(father_handle),
+                        year + self.AVG_GENERATION_GAP,
+                    )
+                    if date1 and date2:
+                        return (date1, date2, explain, other)
+
+            return (None, None, "", None)
+
+        def estimate_bd_range_from_ancestors_OLD(person, year):
+            """
+            Old version of code.
+            This one has years expressed as negative numbers to represent the past
+            """
+            if person.handle in self.pseta:
+                LOG.debug(
+                    "....... person %s already in ancestor test", person.get_gramps_id()
+                )
+                return (None, None, "", None)
+            self.pseta.add(person.handle)
 
             # First, a couple of routines to reduce duplication
             def get_bd_from_ancestor(parent_handle):
@@ -781,7 +899,7 @@ class ProbablyAlive:
                                     parent,
                                 )
                 return None
-
+            
             family_handle = person.get_main_parents_family_handle()
             if family_handle:
                 family = self.db.get_family_from_handle(family_handle)
@@ -796,12 +914,12 @@ class ProbablyAlive:
 
                 if retval is not None:
                     return retval
-                # nothing found yet, so recurse down the mother's line first
+                # nothing found yet, so recurse up the mother's line first
                 # This becomes a depth-first search, which is undesirable,
                 # but by this stage it will be getting quite unreliable so
                 # not worth the effort to fix.
                 if mother_handle is not None:
-                    date1, date2, explain, other = estimate_bd_range_from_ancestors(
+                    date1, date2, explain, other = estimate_bd_range_from_ancestors_OLD(
                         self.db.get_person_from_handle(mother_handle),
                         year - self.AVG_GENERATION_GAP,
                     )
@@ -809,7 +927,7 @@ class ProbablyAlive:
                         return (date1, date2, explain, other)
                 # nothing found yet, try the father's line
                 if father_handle is not None:
-                    date1, date2, explain, other = estimate_bd_range_from_ancestors(
+                    date1, date2, explain, other = estimate_bd_range_from_ancestors_OLD(
                         self.db.get_person_from_handle(father_handle),
                         year - self.AVG_GENERATION_GAP,
                     )
@@ -821,8 +939,21 @@ class ProbablyAlive:
         try:
             LOG.debug("    ------ checking ancestors %s", person.get_gramps_id())
             date1, date2, explain, other = estimate_bd_range_from_ancestors(
+                person, int(self.AVG_GENERATION_GAP)
+            )
+            date1o, date2o, explaino, othero = estimate_bd_range_from_ancestors_OLD(
                 person, -int(self.AVG_GENERATION_GAP)
             )
+            if date1o is not None:
+                (bthmin, bthmax) = date1o.get_start_stop_range()
+                (dthmin, dthmax) = date2o.get_start_stop_range()
+                LOG.debug(
+                    "         OLD versions returned: b(%s-%s), d(%s-%s)",
+                    bthmin,
+                    bthmax,
+                    dthmin,
+                    dthmax,
+                )
         except RuntimeError:
             raise DatabaseError(
                 _("Database error: loop in %s's ancestors")
@@ -904,8 +1035,9 @@ def probably_alive(
     if not birth or not death:
         # no evidence, must consider alive
         LOG.debug(
-            "      [%s]: decided alive - no evidence",
+            "      [%s] %s: decided alive - no evidence",
             person.get_gramps_id(),
+            person.get_primary_name().get_gedcom_name(),
         )
         return (True, None, None, _("no evidence"), None) if return_range else True
     # must have dates from here:
