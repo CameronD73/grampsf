@@ -185,14 +185,14 @@ class ProbablyAlive:
                         explain_death = _("date")
 
             # at this stage death_date is None or a valid date.
-            # death_found is true if person is known to be dead,
+            # death_found is true if thisperson is known to be dead,
             #        whether or not a date was found.
             # If we have no death_date then look for fallback even such as Burial.
             # These fallbacks are fairly good indications that someone's not alive.
             # If that date itself is not valid, it means we know they are dead
             #  but not when they died. So keep checking in case we get a date.
             if not death_date:
-                for ev_ref in person.get_primary_event_ref_list():
+                for ev_ref in thisperson.get_primary_event_ref_list():
                     if ev_ref:
                         evnt = self.db.get_event_from_handle(ev_ref.ref)
                         if evnt and evnt.type.is_death_fallback():
@@ -225,7 +225,7 @@ class ProbablyAlive:
             # Look for Baptism, etc events.
             # These are fairly good indications of someone's birth date.
             if not birth_date:
-                for ev_ref in person.get_primary_event_ref_list():
+                for ev_ref in thisperson.get_primary_event_ref_list():
                     evnt = self.db.get_event_from_handle(ev_ref.ref)
                     if evnt and evnt.type.is_birth_fallback():
                         birth_date_fb = evnt.get_date_object()
