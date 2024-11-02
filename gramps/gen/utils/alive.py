@@ -736,9 +736,10 @@ class ProbablyAlive:
                     ngens * self.AVG_GENERATION_GAP + self.MAX_AGE_PROB_ALIVE
                 )
                 if lower_birth_year > upper_birth_year:
-                    temp = upper_birth_year
-                    upper_birth_year = upper_birth_year
-                    upper_birth_year = temp
+                    upper_birth_year, lower_birth_year = (
+                        lower_birth_year,
+                        upper_birth_year,
+                    )
                 date1 = Date()
                 date1.set_yr_mon_day(lower_birth_year, 1, 1)
                 date1.set_modifier(Date.MOD_RANGE)
