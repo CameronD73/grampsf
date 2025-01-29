@@ -768,7 +768,7 @@ class ProbablyAlive:
 
         except RuntimeError:
             raise DatabaseError(
-                _("Database error: loop in %s's descendants")
+                _("Database error: loop in descendants of %s.")
                 % name_displayer.display(person)
             )
 
@@ -927,7 +927,7 @@ class ProbablyAlive:
                 )
             except RuntimeError:
                 raise DatabaseError(
-                    _("Database error: loop in %s's ancestors")
+                    _("Database error: loop in ancestors of %s.")
                     % name_displayer.display(person)
                 )
 
